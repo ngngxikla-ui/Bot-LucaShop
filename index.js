@@ -51,7 +51,6 @@ function savePurchases(data) {
     fs.writeFileSync(PURCHASE_FILE, JSON.stringify(data, null, 4));
 }
 
-// แยกฐานข้อมูลสินค้าออกมาต่างหากเพื่อป้องกัน config.json พัง
 const PRODUCTS_FILE = './products.json';
 function getProducts() {
     if (!fs.existsSync(PRODUCTS_FILE)) {
@@ -63,6 +62,15 @@ function getProducts() {
 }
 function saveProducts(data) {
     fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(data, null, 4));
+}
+
+const GIVEAWAY_FILE = './giveaways.json';
+function getGiveaways() {
+    if (!fs.existsSync(GIVEAWAY_FILE)) fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify({}));
+    try { return JSON.parse(fs.readFileSync(GIVEAWAY_FILE, 'utf8')); } catch { return {}; }
+}
+function saveGiveaways(data) {
+    fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(data, null, 4));
 }
 
 // ตรวจสอบสิทธิ์ Admin
@@ -118,6 +126,32 @@ commandsMap.set("checkuser", {
     name: "checkuser",
     description: "🔍 เช็คประวัติการซื้อและข้อมูลของลูกค้า (Admin Only)",
     options: [{ name: "user", description: "เลือกผู้ใช้", type: 6, required: true }]
+});
+
+commandsMap.set("giveaway_money", {
+    name: "giveaway_money",
+    description: "🎉 สร้างกิจกรรมแจกเงิน/พอยต์ (Admin Only)",
+    options: [
+        { name: "title", description: "ชื่อกิจกรรม", type: 3, required: true },
+        { name: "amount", description: "จำนวนเงินที่จะได้รับต่อคน", type: 4, required: true },
+        { name: "duration", description: "ระยะเวลาจำกัด (นาที) เช่น 60", type: 4, required: true },
+        { name: "max_claims", description: "จำกัดจำนวนคนที่รับได้ เช่น 10", type: 4, required: true },
+        { name: "description", description: "รายละเอียดเพิ่มเติม", type: 3, required: false },
+        { name: "image_url", description: "ลิงก์รูปภาพประกอบ", type: 3, required: false }
+    ]
+});
+
+commandsMap.set("giveaway_program", {
+    name: "giveaway_program",
+    description: "🎁 สร้างกิจกรรมแจกโปรแกรม/สคริปต์/ลิงก์ (Admin Only)",
+    options: [
+        { name: "title", description: "ชื่อกิจกรรม", type: 3, required: true },
+        { name: "link_code", description: "ลิงก์ดาวน์โหลด หรือโค้ด/สคริปต์ที่จะแจก", type: 3, required: true },
+        { name: "duration", description: "ระยะเวลาจำกัด (นาที) เช่น 60", type: 4, required: true },
+        { name: "max_claims", description: "จำกัดจำนวนคนที่รับได้ เช่น 10", type: 4, required: true },
+        { name: "description", description: "รายละเอียดเพิ่มเติม", type: 3, required: false },
+        { name: "image_url", description: "ลิงก์รูปภาพประกอบ", type: 3, required: false }
+    ]
 });
 
 const rest = new REST({ version: "9" }).setToken(botToken);
@@ -183,7 +217,7 @@ function getAdminPanel() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ฟังก์ชันสร้าง Modal เพิ่มสินค้า
+// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (อัปเดต 3 บรรทัด: ลิงก์, รายละเอียด, รูป)
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
@@ -192,10 +226,10 @@ function buildAddProductModal() {
     const stockInput = new TextInputBuilder().setCustomId('prod_stock').setLabel("จำนวนสต็อก").setPlaceholder("เช่น 10").setStyle(TextInputStyle.Short).setRequired(true);
     const roleInput = new TextInputBuilder().setCustomId('prod_role').setLabel("Role ID ยศที่จะได้รับ (ไม่ใส่ให้เว้นว่าง)").setStyle(TextInputStyle.Short).setRequired(false);
     
-    const linkAndImage = new TextInputBuilder()
+    const detailsInput = new TextInputBuilder()
         .setCustomId('prod_links')
-        .setLabel("ลิงก์ดาวน์โหลด (บรรทัด1) & ลิงก์รูป (บรรทัด2)")
-        .setPlaceholder("บรรทัดที่ 1: ลิงก์สินค้า\nบรรทัดที่ 2: ลิงก์รูปภาพตัวอย่าง")
+        .setLabel("ลิงก์ (บรรทัด1) | รายละเอียด (2) | รูป (3)")
+        .setPlaceholder("บรรทัดที่ 1: ลิงก์ดาวน์โหลดสินค้า\nบรรทัดที่ 2: รายละเอียด / คำอธิบายสินค้า\nบรรทัดที่ 3: ลิงก์รูปภาพตัวอย่าง (Preview)")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false);
 
@@ -204,7 +238,7 @@ function buildAddProductModal() {
         new ActionRowBuilder().addComponents(priceInput),
         new ActionRowBuilder().addComponents(stockInput),
         new ActionRowBuilder().addComponents(roleInput),
-        new ActionRowBuilder().addComponents(linkAndImage)
+        new ActionRowBuilder().addComponents(detailsInput)
     );
 
     return modal;
@@ -301,10 +335,132 @@ client.on("interactionCreate", async (interaction) => {
                 );
                 return await interaction.reply({ embeds: [embed], ephemeral: true });
             }
+
+            // กิจกรรมแจกเงิน / แจกโปรแกรม
+            if (interaction.commandName === 'giveaway_money' || interaction.commandName === 'giveaway_program') {
+                const isMoney = interaction.commandName === 'giveaway_money';
+                const title = interaction.options.getString('title');
+                const durationMinutes = interaction.options.getInteger('duration');
+                const maxClaims = interaction.options.getInteger('max_claims');
+                const description = interaction.options.getString('description') || "กดปุ่มด้านล่างเพื่อรับของขวัญฟรีได้เลย!";
+                const imageUrl = interaction.options.getString('image_url');
+
+                const rewardValue = isMoney ? interaction.options.getInteger('amount') : interaction.options.getString('link_code');
+
+                if (durationMinutes <= 0 || maxClaims <= 0) {
+                    return interaction.reply({ content: "❌ ระยะเวลาและจำนวนสิทธิ์ต้องมากกว่า 0 ครับ", ephemeral: true });
+                }
+
+                const giveawayId = `gw_${Date.now()}`;
+                const endsAt = Date.now() + (durationMinutes * 60 * 1000);
+                const endsAtUnix = Math.floor(endsAt / 1000);
+
+                const embed = new EmbedBuilder()
+                    .setTitle(isMoney ? `🎉 [แจกเงินฟรี] ${title}` : `🎁 [แจกโปรแกรมฟรี] ${title}`)
+                    .setDescription(`${description}\n\n🎁 **รางวัลที่ได้รับ:** ${isMoney ? `**${rewardValue} บาท**` : 'โปรแกรม / สคริปต์ฟรี'}\n👥 **จำกัดคนรับ:** **0/${maxClaims} คน**\n⏰ **หมดเวลาใน:** <t:${endsAtUnix}:R> (<t:${endsAtUnix}:f>)`)
+                    .setColor(isMoney ? "Gold" : "LuminousVividPink")
+                    .setTimestamp();
+
+                if (imageUrl && imageUrl.trim() !== "") embed.setImage(imageUrl);
+
+                const claimBtn = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`claim_gw_${giveawayId}`)
+                        .setLabel('🎁 กดรับรางวัล')
+                        .setStyle(ButtonStyle.Success)
+                );
+
+                const msg = await interaction.reply({ embeds: [embed], components: [claimBtn], fetchReply: true });
+
+                const giveaways = getGiveaways();
+                giveaways[giveawayId] = {
+                    id: giveawayId,
+                    type: isMoney ? 'money' : 'program',
+                    title: title,
+                    reward: rewardValue,
+                    maxClaims: maxClaims,
+                    claimedUsers: [],
+                    endsAt: endsAt,
+                    messageId: msg.id,
+                    channelId: msg.channelId,
+                    ended: false,
+                    imageUrl: imageUrl || "",
+                    description: description
+                };
+                saveGiveaways(giveaways);
+                return;
+            }
         }
 
         // --- 2. Buttons ---
         if (interaction.isButton()) {
+            
+            // ปุ่มรับของรางวัล Giveaway
+            if (interaction.customId.startsWith('claim_gw_')) {
+                const giveawayId = interaction.customId.replace('claim_gw_', '');
+                const giveaways = getGiveaways();
+                const gw = giveaways[giveawayId];
+
+                if (!gw) return interaction.reply({ content: "❌ กิจกรรมนี้สิ้นสุดหรือถูกลบไปแล้ว", ephemeral: true });
+
+                if (Date.now() > gw.endsAt || gw.ended) {
+                    gw.ended = true;
+                    saveGiveaways(giveaways);
+                    return interaction.reply({ content: "❌ กิจกรรมนี้หมดเวลาการรับแล้วครับ!", ephemeral: true });
+                }
+
+                if (gw.claimedUsers.includes(interaction.user.id)) {
+                    return interaction.reply({ content: "❌ คุณเคยรับของขวัญชิ้นนี้ไปแล้วครับ!", ephemeral: true });
+                }
+
+                if (gw.claimedUsers.length >= gw.maxClaims) {
+                    return interaction.reply({ content: "❌ สิทธิ์ถูกรับไปครบเต็มจำนวนแล้วครับ!", ephemeral: true });
+                }
+
+                gw.claimedUsers.push(interaction.user.id);
+
+                let replyMsg = "";
+                if (gw.type === 'money') {
+                    const balances = getBalances();
+                    if (!balances[interaction.user.id]) balances[interaction.user.id] = 0;
+                    balances[interaction.user.id] += parseInt(gw.reward);
+                    saveBalances(balances);
+                    replyMsg = `✅ **ยินดีด้วยครับ!** คุณได้รับเงินจำนวน **${gw.reward} บาท** เข้าสู่ระบบเรียบร้อยแล้ว! 💰\n💳 ยอดเงินคงเหลือปัจจุบัน: **${balances[interaction.user.id]} บาท**`;
+                } else {
+                    replyMsg = `✅ **ยินดีด้วยครับ!** คุณได้รับโปรแกรม/สคริปต์เรียบร้อยแล้ว!\n\n🔗 **ลิงก์ดาวน์โหลด / รายละเอียด:**\n${gw.reward}`;
+                }
+
+                const isFull = gw.claimedUsers.length >= gw.maxClaims;
+                if (isFull) gw.ended = true;
+
+                saveGiveaways(giveaways);
+
+                try {
+                    const endsAtUnix = Math.floor(gw.endsAt / 1000);
+                    const updatedEmbed = new EmbedBuilder()
+                        .setTitle(gw.type === 'money' ? `🎉 [แจกเงินฟรี] ${gw.title}` : `🎁 [แจกโปรแกรมฟรี] ${gw.title}`)
+                        .setDescription(`${gw.description}\n\n🎁 **รางวัลที่ได้รับ:** ${gw.type === 'money' ? `**${gw.reward} บาท**` : 'โปรแกรม / สคริปต์ฟรี'}\n👥 **จำกัดคนรับ:** **${gw.claimedUsers.length}/${gw.maxClaims} คน** ${isFull ? '🔴 **(คนรับเต็มแล้ว)**' : ''}\n⏰ **หมดเวลาใน:** <t:${endsAtUnix}:R>`)
+                        .setColor(isFull ? "Grey" : (gw.type === 'money' ? "Gold" : "LuminousVividPink"))
+                        .setTimestamp();
+
+                    if (gw.imageUrl && gw.imageUrl.trim() !== "") updatedEmbed.setImage(gw.imageUrl);
+
+                    const updatedBtn = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`claim_gw_${gw.id}`)
+                            .setLabel(isFull ? '🔒 คนรับเต็มแล้ว' : '🎁 กดรับรางวัล')
+                            .setStyle(isFull ? ButtonStyle.Secondary : ButtonStyle.Success)
+                            .setDisabled(isFull)
+                    );
+
+                    await interaction.message.edit({ embeds: [updatedEmbed], components: [updatedBtn] });
+                } catch (err) {
+                    console.log("ไม่สามารถอัปเดต Embed ข้อความได้:", err);
+                }
+
+                return interaction.reply({ content: replyMsg, ephemeral: true });
+            }
+
             if (interaction.customId === "topup_menu") {
                 const modal = new ModalBuilder().setCustomId('topup_modal').setTitle('เติมเงินด้วยซองอั่งเปา TrueMoney');
                 const codeInput = new TextInputBuilder().setCustomId('codeInput').setLabel("ใส่ลิ้งค์ซองอังเปาที่นี่").setPlaceholder('https://gift.truemoney.com/campaign/?v=...').setStyle(TextInputStyle.Short).setRequired(true);
@@ -331,6 +487,7 @@ client.on("interactionCreate", async (interaction) => {
                 return await interaction.reply({ content: "🛒 **โปรดเลือกสินค้าที่คุณต้องการซื้อจากรายการด้านล่าง:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
             }
 
+            // ดูราคาและรายละเอียดสินค้า
             if (interaction.customId === "view_prices") {
                 const products = getProducts();
                 let desc = "📋 **รายการสินค้าทั้งหมดที่มีจำหน่าย:**\n\n";
@@ -341,7 +498,8 @@ client.on("interactionCreate", async (interaction) => {
                         let stockCount = p.stock || 0;
                         let stockDisplay = stockCount > 0 ? `📦 สต็อกเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
                         let roleDisplay = (p.roleId && p.roleId !== "") ? `<@&${p.roleId}>` : "ไม่มี";
-                        desc += `**${index + 1}. ${p.name}**\n💵 ราคา: **${p.price} บาท** | ${stockDisplay}\n🏷️ ยศที่จะได้รับ: ${roleDisplay}\n-----------------------------------\n`;
+                        let descriptionText = (p.description && p.description.trim() !== "") ? `\n📝 **รายละเอียด:** ${p.description}` : "";
+                        desc += `**${index + 1}. ${p.name}**\n💵 ราคา: **${p.price} บาท** | ${stockDisplay}${descriptionText}\n🏷️ ยศที่จะได้รับ: ${roleDisplay}\n-----------------------------------\n`;
                     });
                 }
                 return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("💰 รายการสินค้าและราคา").setDescription(desc)], ephemeral: true });
@@ -475,11 +633,12 @@ client.on("interactionCreate", async (interaction) => {
                 }
 
                 const downloadLink = (product.gofileUrl && product.gofileUrl.trim() !== "") ? `[คลิกเพื่อดาวน์โหลด](${product.gofileUrl})` : "ไม่มีไฟล์ให้ดาวน์โหลด";
+                const descDetails = (product.description && product.description.trim() !== "") ? `\n📝 **รายละเอียด:** ${product.description}` : "";
 
                 const successEmbed = new EmbedBuilder()
                     .setColor("Green")
                     .setTitle("✅ สั่งซื้อสินค้าสำเร็จ!")
-                    .setDescription(`คุณได้ซื้อ **${product.name}** เรียบร้อยแล้ว${roleStatusText}`)
+                    .setDescription(`คุณได้ซื้อ **${product.name}** เรียบร้อยแล้ว${roleStatusText}${descDetails}`)
                     .addFields(
                         { name: "🔗 ลิงก์สินค้า", value: downloadLink, inline: false },
                         { name: "💳 ยอดเงินคงเหลือ", value: `${balances[interaction.user.id]} บาท`, inline: false }
@@ -550,7 +709,7 @@ client.on("interactionCreate", async (interaction) => {
                 });
             }
 
-            // ➕ เพิ่มสินค้าใหม่
+            // ➕ เพิ่มสินค้าใหม่ (แยก 3 บรรทัด: ลิงก์, รายละเอียด, รูปภาพ)
             if (interaction.customId === "setup2_modal") {
                 await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
@@ -558,9 +717,8 @@ client.on("interactionCreate", async (interaction) => {
                 const rawPrice = interaction.fields.getTextInputValue('prod_price');
                 const rawStock = interaction.fields.getTextInputValue('prod_stock');
                 const rawRole = interaction.fields.getTextInputValue('prod_role') || "";
-                const rawLinks = interaction.fields.getTextInputValue('prod_links') || "";
+                const rawDetails = interaction.fields.getTextInputValue('prod_links') || "";
 
-                // ทำความสะอาดข้อมูล
                 const cleanPrice = parseFloat(rawPrice.replace(/[^0-9.]/g, ''));
                 const cleanStock = parseInt(rawStock.replace(/[^0-9]/g, ''));
 
@@ -573,9 +731,12 @@ client.on("interactionCreate", async (interaction) => {
                 }
 
                 const cleanRole = rawRole.replace(/[^0-9]/g, '');
-                const linksArr = rawLinks.split('\n').map(l => l.trim());
-                const gofileUrl = linksArr[0] || "";
-                const previewImage = linksArr[1] || "";
+                
+                // แยกเป็น 3 บรรทัด
+                const linesArr = rawDetails.split('\n').map(l => l.trim());
+                const gofileUrl = linesArr[0] || "";      // บรรทัดที่ 1: ลิงก์
+                const description = linesArr[1] || "";    // บรรทัดที่ 2: รายละเอียด
+                const previewImage = linesArr[2] || "";   // บรรทัดที่ 3: รูปภาพ
 
                 const products = getProducts();
                 const newId = `prod_${Date.now()}`;
@@ -587,6 +748,7 @@ client.on("interactionCreate", async (interaction) => {
                     stock: cleanStock,
                     roleId: cleanRole,
                     gofileUrl: gofileUrl,
+                    description: description,
                     previewImage: previewImage
                 };
 
@@ -594,7 +756,7 @@ client.on("interactionCreate", async (interaction) => {
                 saveProducts(products);
 
                 await interaction.editReply({
-                    content: `✅ **เพิ่มสินค้าสำเร็จแล้วครับเพื่อน!**\n\n📌 **ชื่อสินค้า:** ${newProd.name}\n💵 **ราคา:** ${newProd.price} บาท\n📦 **สต็อก:** ${newProd.stock} ชิ้น${cleanRole ? `\n🏷️ **ยศ:** <@&${cleanRole}>` : ''}`
+                    content: `✅ **เพิ่มสินค้าสำเร็จแล้วครับ!**\n\n📌 **ชื่อสินค้า:** ${newProd.name}\n💵 **ราคา:** ${newProd.price} บาท\n📦 **สต็อก:** ${newProd.stock} ชิ้น${description ? `\n📝 **รายละเอียด:** ${description}` : ''}${cleanRole ? `\n🏷️ **ยศ:** <@&${cleanRole}>` : ''}`
                 });
             }
 
