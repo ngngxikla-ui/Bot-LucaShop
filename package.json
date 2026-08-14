@@ -1,21 +1,16 @@
 {
-  "dependencies": {
-    "@fortune-inc/tw-voucher": "^1.0.9",
-    "chalk": "^4",
-    "chalk-rainbow": "^1.0.0",
-    "discord.js": "^14.8.0"
-  },
-  "name": "buy",
-  "version": "1.0.3",
+  "name": "discord-shop-bot",
+  "version": "1.0.0",
+  "description": "Discord Shop Bot with TrueMoney Topup",
   "main": "index.js",
-  "directories": {
-    "test": "test"
-  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": ""
+  "dependencies": {
+    "@fortune-inc/tw-voucher": "^1.0.2",
+    "chalk": "^4.1.2",
+    "chalk-rainbow": "^1.0.8",
+    "discord.js": "^14.14.0",
+    "express": "^4.19.2"
+  }
 }
