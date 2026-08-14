@@ -12,12 +12,12 @@ app.listen(PORT, () => {
 
 const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ActivityType } = require('discord.js');
 
-// ตั้งค่าให้บอทขึ้นสถานะเป็นโทรศัพท์ (Mobile Indicator) ตรงนี้ครับ
+// ตั้งค่าให้บอทขึ้นสถานะเป็นโทรศัพท์ (Mobile Indicator)
 const client = new Client({ 
     intents: 32767,
     ws: {
         properties: {
-            browser: "Discord Android" // สามารถเปลี่ยนเป็น "Discord iOS" ได้เช่นกันครับ
+            browser: "Discord Android"
         }
     }
 });
@@ -66,6 +66,11 @@ commandsMap.set("setup", {
 commandsMap.set("setupstock", {
     name: "setupstock",
     description: "จัดการสต็อก (Admin Only)",
+    options: []
+});
+commandsMap.set("checkstock", {
+    name: "checkstock",
+    description: "เช็คสต็อกสินค้าและสถานะการขายทั้งหมด (Admin Only)",
     options: []
 });
 commandsMap.set("addstock", {
@@ -179,6 +184,73 @@ client.on("interactionCreate", async (interaction) => {
             }
             const menuData = createShopMenu();
             return await interaction.reply(menuData);
+        }
+
+        if (interaction.commandName === 'setupstock') {
+            if (!isAdmin(interaction.user.id)) {
+                return interaction.reply({ content: "❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (สำหรับ Admin เท่านั้น)", ephemeral: true });
+            }
+
+            let desc = "📦 **ระบบจัดการสต็อกสินค้าในระบบ:**\n\n";
+            if (!config.products || config.products.length === 0) {
+                desc += "ยังไม่มีสินค้าในระบบ";
+            } else {
+                config.products.forEach((p, index) => {
+                    let stockCount = p.stock !== undefined ? p.stock : 0;
+                    desc += `**${index + 1}. ${p.name}** (ID: \`${p.id}\`)\n`;
+                    desc += `📦 สต็อกคงเหลือ: **${stockCount} ชิ้น** | ราคา: **${p.price} บาท**\n-----------------------------------\n`;
+                });
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor("Blue")
+                .setTitle("🛠️ จัดการสต็อกสินค้า")
+                .setDescription(desc)
+                .setFooter({ text: "ใช้คำสั่ง /addstock เพื่อเพิ่ม หรือ /removestock เพื่อลดจำนวนสต็อก" });
+
+            return await interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
+        if (interaction.commandName === 'checkstock') {
+            if (!isAdmin(interaction.user.id)) {
+                return interaction.reply({ content: "❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (สำหรับ Admin เท่านั้น)", ephemeral: true });
+            }
+
+            const purchases = getPurchases();
+            let desc = "📋 **รายงานสต็อกสินค้าและสถานะการขายทั้งหมด:**\n\n";
+
+            if (!config.products || config.products.length === 0) {
+                desc += "ยังไม่มีสินค้าในระบบ";
+            } else {
+                config.products.forEach((p, index) => {
+                    let stockCount = p.stock !== undefined ? p.stock : 0;
+                    
+                    // คำนวณจำนวนที่ถูกซื้อไปแล้วจากประวัติการซื้อ (purchases.json)
+                    let totalSold = 0;
+                    Object.values(purchases).forEach(userPurchases => {
+                        userPurchases.forEach(up => {
+                            if (up.productName === p.name) {
+                                totalSold++;
+                            }
+                        });
+                    });
+
+                    let stockStatus = stockCount > 0 ? `📦 คงเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
+
+                    desc += `**${index + 1}. ${p.name}** (ID: \`${p.id}\`)\n`;
+                    desc += `${stockStatus} | 🛒 ขายไปแล้ว: **${totalSold} ชิ้น** | 💵 ราคา: **${p.price} บาท**\n`;
+                    if (p.gofileUrl) desc += `🔗 ลิงก์ไฟล์: ${p.gofileUrl}\n`;
+                    desc += `-----------------------------------\n`;
+                });
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor("Gold")
+                .setTitle("📊 ตรวจสอบสต็อกและรายการสินค้าทั้งหมด")
+                .setDescription(desc)
+                .setTimestamp();
+
+            return await interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
         if (interaction.commandName === 'setup2') {
