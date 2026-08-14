@@ -9,6 +9,7 @@
             "id": "prod_1",
             "name": "ยศ Member ",
             "price": 50,
+            "stock": 10,
             "roleId": "1537735948497064017",
             "gofileUrl": "",
             "previewImage": ""
@@ -17,6 +18,7 @@
             "id": "prod_2",
             "name": "โปรเเกรมยิงเบอร์",
             "price": 0,
+            "stock": 99,
             "roleId": "1537745711989526579",
             "gofileUrl": "https://gofile.io/d/t0WAHc",
             "previewImage": "https://cdn.discordapp.com/attachments/1448273041963618386/1537745392941408326/0c666221-335e-4dc0-b78d-c878f0e0122a.png?ex=6a80287f&is=6a7ed6ff&hm=675f9d797520462cb5d02703bfa2b5582a95644f51946d1419c1e30f61b9679f&"
@@ -25,6 +27,7 @@
             "id": "prod_3",
             "name": "ดั้มเซิฟ",
             "price": 80,
+            "stock": 5,
             "roleId": "",
             "gofileUrl": "https://gofile.io/d/t0WAHc",
             "previewImage": "https://cdn.discordapp.com/attachments/1448273041963618386/1537745392941408326/0c666221-335e-4dc0-b78d-c878f0e0122a.png?ex=6a80287f&is=6a7ed6ff&hm=675f9d797520462cb5d02703bfa2b5582a95644f51946d1419c1e30f61b9679f&"
