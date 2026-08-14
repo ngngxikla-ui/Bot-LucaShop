@@ -11,7 +11,17 @@ app.listen(PORT, () => {
 });
 
 const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ActivityType } = require('discord.js');
-const client = new Client({ intents: 32767 });
+
+// ตั้งค่าให้บอทขึ้นสถานะเป็นโทรศัพท์ (Mobile Indicator) ตรงนี้ครับ
+const client = new Client({ 
+    intents: 32767,
+    ws: {
+        properties: {
+            browser: "Discord Android" // สามารถเปลี่ยนเป็น "Discord iOS" ได้เช่นกันครับ
+        }
+    }
+});
+
 const tw = require('@fortune-inc/tw-voucher');
 const config = require('./config.json');
 const { REST } = require("@discordjs/rest");
