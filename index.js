@@ -3,11 +3,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    res.send('Bot is running 24/7!');
+    res.send('Bot LucaShop is running 24/7!');
 });
 
 app.listen(PORT, () => {
-    console.log(`Server is listening on port ${PORT}`);
+    console.log(chalk.green(`✅ LucaShop is running : ${client.user.tag}`));
 });
 
 const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder } = require('discord.js');
@@ -18,7 +18,7 @@ const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v9");
 const fs = require('fs');
 const chalk = require('chalk');
-const chalkRainbow = require('chalk-rainbow');
+
 
 // กำหนดตัวแปร Token รองรับทั้งจาก Render Environment และไฟล์ config.json
 const botToken = process.env.TOKEN || config.token;
