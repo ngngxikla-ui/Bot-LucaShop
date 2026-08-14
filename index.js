@@ -20,6 +20,9 @@ const fs = require('fs');
 const chalk = require('chalk');
 const chalkRainbow = require('chalk-rainbow');
 
+// กำหนดตัวแปร Token รองรับทั้งจาก Render Environment และไฟล์ config.json
+const botToken = process.env.TOKEN || config.token;
+
 // จัดการฐานข้อมูลยอดเงิน (Balances Database)
 const DB_FILE = './balances.json';
 function getBalances() {
@@ -87,7 +90,7 @@ commandsMap.set("checkuser", {
     ]
 });
 
-const rest = new REST({ version: "9" }).setToken(config.token);
+const rest = new REST({ version: "9" }).setToken(botToken);
 
 client.once("ready", () => {
     (async () => {
@@ -154,7 +157,6 @@ client.on("interactionCreate", async (interaction) => {
                 return interaction.reply({ content: "❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (สำหรับ Admin เท่านั้น)", ephemeral: true });
             }
 
-            // แก้ไข: ลดเหลือ 5 ช่อง (สูงสุดที่ Discord อนุญาต) โดยตัดช่อง ID ออกและใช้ระบบสร้าง ID อัตโนมัติแทน
             const modal = new ModalBuilder()
                 .setCustomId('setup2_modal')
                 .setTitle('➕ เพิ่มสินค้า/ตะกร้าสินค้าใหม่');
@@ -348,7 +350,7 @@ client.on("interactionCreate", async (interaction) => {
             });
             savePurchases(purchases);
 
-            // ให้ยศ (ตรวจสอบความถูกต้องและป้องกัน Error บอทพัง)
+            // ให้ยศ
             if (product.roleId && product.roleId.trim() !== "") {
                 try {
                     await interaction.member.roles.add(product.roleId);
@@ -399,7 +401,6 @@ client.on("interactionCreate", async (interaction) => {
 
     // 4. Modal Submit
     if (interaction.isModalSubmit()) {
-        // ระบบเติมเงิน
         if (interaction.customId === "topup_modal") {
             const codeInput = interaction.fields.getTextInputValue('codeInput');
             await interaction.deferReply({ ephemeral: true }); 
@@ -442,7 +443,6 @@ client.on("interactionCreate", async (interaction) => {
             });
         }
 
-        // ระบบ setup2 เพิ่มสินค้าเข้า config.json อัตโนมัติ (สร้าง ID ให้อัตโนมัติ)
         if (interaction.customId === "setup2_modal") {
             if (!config.products) config.products = [];
             const newId = `prod_${config.products.length + 1}`;
@@ -458,7 +458,6 @@ client.on("interactionCreate", async (interaction) => {
 
             config.products.push(newProd);
 
-            // บันทึกลงไฟล์ config.json
             fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
 
             await interaction.reply({
@@ -472,4 +471,4 @@ client.on("interactionCreate", async (interaction) => {
 process.on('unhandledRejection', (reason, p) => console.log(' [Anti-Crash] :: Unhandled Rejection'));
 process.on('uncaughtException', (err, origin) => console.log(' [Anti-Crash] :: Uncaught Exception'));
 
-client.login(config.token);
+client.login(botToken);
