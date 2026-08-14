@@ -1,6 +1,6 @@
 const express = require('express');
 const app = express();
-const PORT = process process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     res.send('Bot LucaShop is running 24/7!');
@@ -183,7 +183,7 @@ function getAdminPanel() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (ความปลอดภัยสูงสุด)
+// ฟังก์ชันสร้าง Modal เพิ่มสินค้า
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
@@ -550,7 +550,7 @@ client.on("interactionCreate", async (interaction) => {
                 });
             }
 
-            // ➕ เพิ่มสินค้าใหม่ (แก้ล็อกระบบ 100% ไม่มี Error)
+            // ➕ เพิ่มสินค้าใหม่
             if (interaction.customId === "setup2_modal") {
                 await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
@@ -560,7 +560,7 @@ client.on("interactionCreate", async (interaction) => {
                 const rawRole = interaction.fields.getTextInputValue('prod_role') || "";
                 const rawLinks = interaction.fields.getTextInputValue('prod_links') || "";
 
-                // ทำความสะอาดข้อมูล ป้องกันข้อผิดพลาดจากการพิมพ์
+                // ทำความสะอาดข้อมูล
                 const cleanPrice = parseFloat(rawPrice.replace(/[^0-9.]/g, ''));
                 const cleanStock = parseInt(rawStock.replace(/[^0-9]/g, ''));
 
