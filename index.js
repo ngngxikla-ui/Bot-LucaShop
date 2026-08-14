@@ -50,12 +50,12 @@ function isAdmin(userId) {
 let commandsMap = new Map();
 commandsMap.set("setup", {
     name: "setup",
-    description: "เรียกหน้าต่างเมนูร้านค้า (Admin Only)",
+    description: "setup ตั้งค่าทั้งหมด (Admin Only)",
     options: []
 });
-commandsMap.set("setup2", {
-    name: "setup2",
-    description: "เพิ่มสินค้า, สต็อก และรูปภาพผ่านฟอร์ม (Admin Only)",
+commandsMap.set("setup stock", {
+    name: "setup stock",
+    description: "จัดการสต็อก (Admin Only)",
     options: []
 });
 commandsMap.set("addstock", {
@@ -68,7 +68,7 @@ commandsMap.set("addstock", {
 });
 commandsMap.set("removestock", {
     name: "removestock",
-    description: "ลด/เอาของออกจากสต็อกสินค้า (Admin Only)",
+    description: "เอาของออกจากสต็อก (Admin Only)",
     options: [
         { name: "product_id", description: "ID สินค้า (เช่น prod_1) หรือชื่อสินค้า", type: 3, required: true },
         { name: "amount", description: "จำนวนที่ต้องการเอาออก", type: 4, required: true }
@@ -76,7 +76,7 @@ commandsMap.set("removestock", {
 });
 commandsMap.set("addmoney", {
     name: "addmoney",
-    description: "เพิ่มเงินให้บัญชีผู้ใช้ (Admin Only)",
+    description: "เพิ่มเงินให้บัญชี (Admin Only)",
     options: [
         { name: "user", description: "เลือกผู้ใช้", type: 6, required: true },
         { name: "amount", description: "จำนวนเงินที่ต้องการเพิ่ม", type: 4, required: true }
@@ -84,7 +84,7 @@ commandsMap.set("addmoney", {
 });
 commandsMap.set("removemoney", {
     name: "removemoney",
-    description: "เอาเงินออกจากบัญชีผู้ใช้ (Admin Only)",
+    description: "เอาเงินออกจากบัญชี (Admin Only)",
     options: [
         { name: "user", description: "เลือกผู้ใช้", type: 6, required: true },
         { name: "amount", description: "จำนวนเงินที่ต้องการหัก", type: 4, required: true }
@@ -92,7 +92,7 @@ commandsMap.set("removemoney", {
 });
 commandsMap.set("checkmoney", {
     name: "checkmoney",
-    description: "เช็คยอดเงินในบัญชีผู้ใช้ (Admin Only)",
+    description: "เช็คยอดเงินบัญชี (Admin Only)",
     options: [
         { name: "user", description: "เลือกผู้ใช้ที่ต้องการเช็ค", type: 6, required: true }
     ]
@@ -122,8 +122,8 @@ client.once("ready", () => {
 // ฟังก์ชันสร้างหน้าเมนูหลัก
 function createShopMenu() {
     const embed = new EmbedBuilder()
-        .setTitle('🛒 ระบบร้านค้าและเติมเงินสะสม')
-        .setDescription('• เติมเงินเก็บสะสมไว้ในบัญชี\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง')
+        .setTitle('🛒 LucaShop')
+        .setDescription('• เติมเงินผ่านซองทรูมันนี่\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง\n• เลือกเอสโปรเเกรมฟรีได้ข้างล่าง')
         .setColor('Blue');
     
     if (config.imageUrl && config.imageUrl !== "") {
