@@ -58,6 +58,22 @@ commandsMap.set("setup2", {
     description: "เพิ่มสินค้า, สต็อก และรูปภาพผ่านฟอร์ม (Admin Only)",
     options: []
 });
+commandsMap.set("addstock", {
+    name: "addstock",
+    description: "เพิ่มจำนวนสต็อกสินค้า (Admin Only)",
+    options: [
+        { name: "product_id", description: "ID สินค้า (เช่น prod_1) หรือชื่อสินค้า", type: 3, required: true },
+        { name: "amount", description: "จำนวนที่ต้องการเพิ่ม", type: 4, required: true }
+    ]
+});
+commandsMap.set("removestock", {
+    name: "removestock",
+    description: "ลด/เอาของออกจากสต็อกสินค้า (Admin Only)",
+    options: [
+        { name: "product_id", description: "ID สินค้า (เช่น prod_1) หรือชื่อสินค้า", type: 3, required: true },
+        { name: "amount", description: "จำนวนที่ต้องการเอาออก", type: 4, required: true }
+    ]
+});
 commandsMap.set("addmoney", {
     name: "addmoney",
     description: "เพิ่มเงินให้บัญชีผู้ใช้ (Admin Only)",
@@ -175,6 +191,36 @@ client.on("interactionCreate", async (interaction) => {
             );
 
             return await interaction.showModal(modal);
+        }
+
+        if (interaction.commandName === 'addstock') {
+            if (!isAdmin(interaction.user.id)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
+            const query = interaction.options.getString('product_id').trim();
+            const amount = interaction.options.getInteger('amount');
+
+            const product = config.products.find(p => p.id.toLowerCase() === query.toLowerCase() || p.name.includes(query));
+            if (!product) return interaction.reply({ content: `❌ ไม่พบสินค้าที่ตรงกับ "${query}" (ตรวจสอบ ID หรือชื่อสินค้าให้ถูกต้อง)`, ephemeral: true });
+
+            if (product.stock === undefined) product.stock = 0;
+            product.stock += amount;
+            fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
+
+            return await interaction.reply({ content: `✅ เพิ่มสต็อกสินค้า **${product.name}** จำนวน **${amount} ชิ้น** สำเร็จ\n📦 สต็อกปัจจุบัน: **${product.stock} ชิ้น**`, ephemeral: true });
+        }
+
+        if (interaction.commandName === 'removestock') {
+            if (!isAdmin(interaction.user.id)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
+            const query = interaction.options.getString('product_id').trim();
+            const amount = interaction.options.getInteger('amount');
+
+            const product = config.products.find(p => p.id.toLowerCase() === query.toLowerCase() || p.name.includes(query));
+            if (!product) return interaction.reply({ content: `❌ ไม่พบสินค้าที่ตรงกับ "${query}" (ตรวจสอบ ID หรือชื่อสินค้าให้ถูกต้อง)`, ephemeral: true });
+
+            if (product.stock === undefined) product.stock = 0;
+            product.stock = Math.max(0, product.stock - amount);
+            fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
+
+            return await interaction.reply({ content: `✅ ลดสต็อกสินค้า **${product.name}** จำนวน **${amount} ชิ้น** สำเร็จ\n📦 สต็อกปัจจุบัน: **${product.stock} ชิ้น**`, ephemeral: true });
         }
 
         if (interaction.commandName === 'addmoney') {
@@ -298,7 +344,7 @@ client.on("interactionCreate", async (interaction) => {
                 let stockCount = p.stock !== undefined ? p.stock : 0;
                 let stockDisplay = stockCount > 0 ? `📦 สต็อกเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
                 
-                desc += `**${index + 1}. ${p.name}**\n`;
+                desc += `**${index + 1}. ${p.name}** (ID: \`${p.id}\`)\n`;
                 desc += `💵 ราคา: **${p.price} บาท** | ${stockDisplay}\n-----------------------------------\n`;
             });
 
@@ -461,7 +507,7 @@ client.on("interactionCreate", async (interaction) => {
             fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
 
             await interaction.reply({
-                content: `✅ เพิ่มสินค้า **${newProd.name}** (จำนวนสต็อก: **${newProd.stock} ชิ้น**) เข้าสู่ระบบเรียบร้อยแล้ว!`,
+                content: `✅ เพิ่มสินค้า **${newProd.name}** (ID: \`${newId}\` | จำนวนสต็อก: **${newProd.stock} ชิ้น**) เข้าสู่ระบบเรียบร้อยแล้ว!`,
                 ephemeral: true
             });
         }
