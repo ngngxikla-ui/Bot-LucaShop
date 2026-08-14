@@ -9,7 +9,6 @@
   "dependencies": {
     "@fortune-inc/tw-voucher": "^1.0.2",
     "chalk": "^4.1.2",
-    "chalk-rainbow": "^1.0.8",
     "discord.js": "^14.14.0",
     "express": "^4.19.2"
   }
