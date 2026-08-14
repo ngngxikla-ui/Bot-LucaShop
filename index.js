@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -7,7 +7,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(chalk.green(`✅ LucaShop is running : ${client.user.tag}`));
+    console.log(`Server is listening on port ${PORT}`);
 });
 
 const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder } = require('discord.js');
@@ -18,7 +18,6 @@ const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v9");
 const fs = require('fs');
 const chalk = require('chalk');
-
 
 // กำหนดตัวแปร Token รองรับทั้งจาก Render Environment และไฟล์ config.json
 const botToken = process.env.TOKEN || config.token;
@@ -56,7 +55,7 @@ commandsMap.set("setup", {
 });
 commandsMap.set("setup2", {
     name: "setup2",
-    description: "เพิ่มสินค้า/ตะกร้าสินค้าใหม่ผ่านฟอร์ม (Admin Only)",
+    description: "เพิ่มสินค้า, สต็อก และรูปภาพผ่านฟอร์ม (Admin Only)",
     options: []
 });
 commandsMap.set("addmoney", {
@@ -84,7 +83,7 @@ commandsMap.set("checkmoney", {
 });
 commandsMap.set("checkuser", {
     name: "checkuser",
-    description: "เช็คยศและประวัติการซื้อสินค้าของผู้ใช้ (Admin Only)",
+    description: "เช็คประวัติการซื้อสินค้าของผู้ใช้ (Admin Only)",
     options: [
         { name: "user", description: "เลือกผู้ใช้ที่ต้องการเช็ค", type: 6, required: true }
     ]
@@ -97,7 +96,7 @@ client.once("ready", () => {
         try {
             let commands = Array.from(commandsMap.values());
             await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-            console.log(chalkRainbow(`✅ เข้าสู่ระบบสำเร็จในชื่อ : ${client.user.tag}`));
+            console.log(chalk.green(`✅ เข้าสู่ระบบสำเร็จในชื่อ : ${client.user.tag}`));
         } catch (err) {
             console.error(err);
         }
@@ -108,7 +107,7 @@ client.once("ready", () => {
 function createShopMenu() {
     const embed = new EmbedBuilder()
         .setTitle('🛒 ระบบร้านค้าและเติมเงินสะสม')
-        .setDescription('• เติมเงินเก็บสะสมไว้ในบัญชี\n• เลือกซื้อยศและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง')
+        .setDescription('• เติมเงินเก็บสะสมไว้ในบัญชี\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง')
         .setColor('Blue');
     
     if (config.imageUrl && config.imageUrl !== "") {
@@ -118,11 +117,11 @@ function createShopMenu() {
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('topup_menu').setLabel('💰 เติมเงิน (ซองอั่งเปา)').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('check_balance').setLabel('💳 ดูยอดเงินในบัญชี').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('buy_menu').setLabel('🛒 เลือกซื้อยศ/โปรแกรม').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('buy_menu').setLabel('🛒 เลือกซื้อสินค้า').setStyle(ButtonStyle.Secondary)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('view_prices').setLabel('❓ ดูราคายศและสินค้า').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('view_prices').setLabel('❓ ดูรายการสินค้าและราคา').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('contact_admin').setLabel('🎫 ติดต่อแอดมิน').setStyle(ButtonStyle.Danger)
     );
 
@@ -159,18 +158,18 @@ client.on("interactionCreate", async (interaction) => {
 
             const modal = new ModalBuilder()
                 .setCustomId('setup2_modal')
-                .setTitle('➕ เพิ่มสินค้า/ตะกร้าสินค้าใหม่');
+                .setTitle('➕ เพิ่มสินค้าและสต็อกใหม่');
 
-            const nameInput = new TextInputBuilder().setCustomId('prod_name').setLabel("ชื่อสินค้า/ยศ").setStyle(TextInputStyle.Short).setRequired(true);
+            const nameInput = new TextInputBuilder().setCustomId('prod_name').setLabel("ชื่อสินค้า").setStyle(TextInputStyle.Short).setRequired(true);
             const priceInput = new TextInputBuilder().setCustomId('prod_price').setLabel("ราคา (บาท)").setStyle(TextInputStyle.Short).setRequired(true);
-            const roleInput = new TextInputBuilder().setCustomId('prod_roleId').setLabel("Role ID ของ Discord (เว้นว่างได้)").setStyle(TextInputStyle.Short).setRequired(false);
-            const gofileInput = new TextInputBuilder().setCustomId('prod_gofile').setLabel("ลิงก์ดาวน์โหลด GoFile (ถ้ามี)").setStyle(TextInputStyle.Short).setRequired(false);
-            const imageInput = new TextInputBuilder().setCustomId('prod_image').setLabel("ลิงก์ภาพตัวอย่างสินค้า (ถ้ามี)").setStyle(TextInputStyle.Short).setRequired(false);
+            const stockInput = new TextInputBuilder().setCustomId('prod_stock').setLabel("จำนวนสต็อก (เช่น 5)").setStyle(TextInputStyle.Short).setRequired(true);
+            const gofileInput = new TextInputBuilder().setCustomId('prod_gofile').setLabel("ลิงก์ดาวน์โหลด (GoFile/อื่นๆ)").setStyle(TextInputStyle.Short).setRequired(false);
+            const imageInput = new TextInputBuilder().setCustomId('prod_image').setLabel("ลิงก์รูปภาพตัวอย่างสินค้า").setStyle(TextInputStyle.Short).setRequired(false);
 
             modal.addComponents(
                 new ActionRowBuilder().addComponents(nameInput),
                 new ActionRowBuilder().addComponents(priceInput),
-                new ActionRowBuilder().addComponents(roleInput),
+                new ActionRowBuilder().addComponents(stockInput),
                 new ActionRowBuilder().addComponents(gofileInput),
                 new ActionRowBuilder().addComponents(imageInput)
             );
@@ -216,14 +215,12 @@ client.on("interactionCreate", async (interaction) => {
         if (interaction.commandName === 'checkuser') {
             if (!isAdmin(interaction.user.id)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
             const targetUser = interaction.options.getUser('user');
-            const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
 
             const balances = getBalances();
             const purchases = getPurchases();
             const userBalance = balances[targetUser.id] || 0;
             const userPurchases = purchases[targetUser.id] || [];
 
-            let rolesList = member ? member.roles.cache.filter(r => r.id !== interaction.guild.id).map(r => `<@&${r.id}>`).join(', ') : "ไม่พบข้อมูลในเซิร์ฟเวอร์";
             let purchaseHistory = userPurchases.length > 0 ? userPurchases.map(p => `• **${p.productName}** (${p.price} บาท) - เมื่อ ${new Date(p.date).toLocaleString()}`).join('\n') : "ยังไม่มีประวัติการซื้อสินค้า";
 
             const embed = new EmbedBuilder()
@@ -231,7 +228,6 @@ client.on("interactionCreate", async (interaction) => {
                 .setTitle(`🔍 ข้อมูลผู้ใช้: ${targetUser.tag}`)
                 .addFields(
                     { name: "💳 ยอดเงินคงเหลือ", value: `${userBalance} บาท`, inline: true },
-                    { name: "🛡️ ยศทั้งหมดที่มี", value: rolesList || "ไม่มี", inline: false },
                     { name: "🛒 ประวัติการซื้อสินค้า", value: purchaseHistory, inline: false }
                 )
                 .setTimestamp();
@@ -277,12 +273,14 @@ client.on("interactionCreate", async (interaction) => {
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('select_product')
-                .setPlaceholder('เลือกสินค้า/ยศที่คุณต้องการซื้อ');
+                .setPlaceholder('เลือกสินค้าที่คุณต้องการซื้อ');
 
             config.products.forEach(prod => {
+                let stockCount = prod.stock !== undefined ? prod.stock : 0;
+                let stockLabel = stockCount > 0 ? ` (เหลือ ${stockCount} ชิ้น)` : " (สินค้าหมด)";
                 selectMenu.addOptions({
-                    label: prod.name,
-                    description: `ราคา ${prod.price} บาท`,
+                    label: prod.name + stockLabel,
+                    description: `ราคา ${prod.price} บาท | สต็อก: ${stockCount} ชิ้น`,
                     value: prod.id
                 });
             });
@@ -295,17 +293,17 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (interaction.customId === "view_prices") {
-            let desc = "📋 **รายการยศและโปรแกรมที่มีจำหน่าย:**\n\n";
+            let desc = "📋 **รายการสินค้าทั้งหมดที่มีจำหน่าย:**\n\n";
             config.products.forEach((p, index) => {
-                let roleDisplay = (p.roleId && p.roleId.trim() !== "") ? `<@&${p.roleId}>` : "ไม่มีการกำหนดกลุ่มยศ";
+                let stockCount = p.stock !== undefined ? p.stock : 0;
+                let stockDisplay = stockCount > 0 ? `📦 สต็อกเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
+                
                 desc += `**${index + 1}. ${p.name}**\n`;
-                desc += `💵 ราคา: **${p.price} บาท**\n`;
-                desc += `🛡️ ได้รับยศ: ${roleDisplay}\n`;
-                desc += `🎁 ของแถม: ลิงก์ดาวน์โหลดโปรแกรม + ภาพตัวอย่าง\n-----------------------------------\n`;
+                desc += `💵 ราคา: **${p.price} บาท** | ${stockDisplay}\n-----------------------------------\n`;
             });
 
             await interaction.reply({
-                embeds: [new EmbedBuilder().setColor("Green").setTitle("💰 ราคายศและโปรแกรมทั้งหมด").setDescription(desc)],
+                embeds: [new EmbedBuilder().setColor("Green").setTitle("💰 รายการสินค้าและราคา").setDescription(desc)],
                 ephemeral: true
             });
         }
@@ -325,6 +323,16 @@ client.on("interactionCreate", async (interaction) => {
             const product = config.products.find(p => p.id === productId);
             if (!product) return interaction.update({ content: "❌ ไม่พบสินค้านี้ในระบบ", components: [] });
 
+            // เช็คสต็อกสินค้า
+            const currentStock = product.stock !== undefined ? product.stock : 0;
+            if (currentStock <= 0) {
+                return interaction.update({
+                    content: `❌ สินค้า **${product.name}** หมดสต็อกแล้วครับ! กรุณารอแอดมินเติมสต็อก`,
+                    components: [],
+                    ephemeral: true
+                });
+            }
+
             const balances = getBalances();
             const userBalance = balances[interaction.user.id] || 0;
 
@@ -340,6 +348,10 @@ client.on("interactionCreate", async (interaction) => {
             balances[interaction.user.id] -= product.price;
             saveBalances(balances);
 
+            // หักสต็อกสินค้าลง 1 ชิ้น และบันทึกไฟล์ config.json ทันที
+            product.stock = currentStock - 1;
+            fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
+
             // บันทึกประวัติการซื้อ
             const purchases = getPurchases();
             if (!purchases[interaction.user.id]) purchases[interaction.user.id] = [];
@@ -350,25 +362,14 @@ client.on("interactionCreate", async (interaction) => {
             });
             savePurchases(purchases);
 
-            // ให้ยศ
-            if (product.roleId && product.roleId.trim() !== "") {
-                try {
-                    await interaction.member.roles.add(product.roleId);
-                } catch (err) {
-                    console.error("ไม่สามารถเพิ่มยศได้ (ตรวจสอบสิทธิ์และลำดับยศของบอท):", err);
-                }
-            }
-
-            const roleMention = (product.roleId && product.roleId.trim() !== "") ? `<@&${product.roleId}>` : "ไม่มีการกำหนดกลุ่มยศ";
-            const downloadLink = (product.gofileUrl && product.gofileUrl.trim() !== "") ? `[คลิกเพื่อดาวน์โหลด](${product.gofileUrl})` : "ไม่มีลิงก์ดาวน์โหลดไฟล์";
+            const downloadLink = (product.gofileUrl && product.gofileUrl.trim() !== "") ? `[คลิกเพื่อดาวน์โหลดไฟล์](${product.gofileUrl})` : "ไม่มีลิงก์ดาวน์โหลดไฟล์";
 
             const successEmbed = new EmbedBuilder()
                 .setColor("Green")
                 .setTitle("✅ สั่งซื้อสินค้าสำเร็จ!")
                 .setDescription(`คุณได้ทำการซื้อ **${product.name}** เรียบร้อยแล้ว`)
                 .addFields(
-                    { name: "🛡️ ยศที่ได้รับ", value: roleMention, inline: false },
-                    { name: "🔗 ลิงก์ดาวน์โหลดไฟล์", value: downloadLink, inline: false },
+                    { name: "🔗 ลิงก์ดาวน์โหลดสินค้า", value: downloadLink, inline: false },
                     { name: "💳 ยอดเงินคงเหลือ", value: `${balances[interaction.user.id]} บาท`, inline: false }
                 );
 
@@ -390,7 +391,7 @@ client.on("interactionCreate", async (interaction) => {
                     embeds: [
                         new EmbedBuilder()
                             .setTitle("🛒 มีการซื้อสินค้าสำเร็จ")
-                            .setDescription(`ผู้ซื้อ: <@${interaction.user.id}>\nสินค้า: **${product.name}**\nราคา: **${product.price} บาท**`)
+                            .setDescription(`ผู้ซื้อ: <@${interaction.user.id}>\nสินค้า: **${product.name}**\nราคา: **${product.price} บาท**\n📦 สต็อกคงเหลือ: **${product.stock} ชิ้น**`)
                             .setColor("Green")
                             .setTimestamp()
                     ]
@@ -451,17 +452,16 @@ client.on("interactionCreate", async (interaction) => {
                 id: newId,
                 name: interaction.fields.getTextInputValue('prod_name'),
                 price: parseFloat(interaction.fields.getTextInputValue('prod_price')) || 0,
-                roleId: interaction.fields.getTextInputValue('prod_roleId') || "",
+                stock: parseInt(interaction.fields.getTextInputValue('prod_stock')) || 0,
                 gofileUrl: interaction.fields.getTextInputValue('prod_gofile') || "",
                 previewImage: interaction.fields.getTextInputValue('prod_image') || ""
             };
 
             config.products.push(newProd);
-
             fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
 
             await interaction.reply({
-                content: `✅ เพิ่มสินค้า **${newProd.name}** (ID: \`${newId}\`) เข้าสู่ระบบเรียบร้อยแล้ว! สามารถใช้คำสั่ง \`/setup\` เรียกดูร้านค้าใหม่ได้ทันที`,
+                content: `✅ เพิ่มสินค้า **${newProd.name}** (จำนวนสต็อก: **${newProd.stock} ชิ้น**) เข้าสู่ระบบเรียบร้อยแล้ว!`,
                 ephemeral: true
             });
         }
