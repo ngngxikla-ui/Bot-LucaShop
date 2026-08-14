@@ -217,19 +217,41 @@ function getAdminPanel() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (แก้ไข Placeholder ไม่ให้มี \n)
+// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (แก้ไขความยาว Label ให้ไม่เกิน 45 ตัวอักษร)
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
-    const nameInput = new TextInputBuilder().setCustomId('prod_name').setLabel("ชื่อสินค้า").setPlaceholder("เช่น ไอดี Roblox / สคริปต์ VIP").setStyle(TextInputStyle.Short).setRequired(true);
-    const priceInput = new TextInputBuilder().setCustomId('prod_price').setLabel("ราคา (บาท)").setPlaceholder("เช่น 50 หรือ 100").setStyle(TextInputStyle.Short).setRequired(true);
-    const stockInput = new TextInputBuilder().setCustomId('prod_stock').setLabel("จำนวนสต็อก").setPlaceholder("เช่น 10").setStyle(TextInputStyle.Short).setRequired(true);
-    const roleInput = new TextInputBuilder().setCustomId('prod_role').setLabel("Role ID ยศที่จะได้รับ (ไม่ใส่ให้เว้นว่าง)").setStyle(TextInputStyle.Short).setRequired(false);
+    const nameInput = new TextInputBuilder()
+        .setCustomId('prod_name')
+        .setLabel("ชื่อสินค้า")
+        .setPlaceholder("เช่น ไอดี Roblox / สคริปต์ VIP")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const priceInput = new TextInputBuilder()
+        .setCustomId('prod_price')
+        .setLabel("ราคา (บาท)")
+        .setPlaceholder("เช่น 50 หรือ 100")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const stockInput = new TextInputBuilder()
+        .setCustomId('prod_stock')
+        .setLabel("จำนวนสต็อก")
+        .setPlaceholder("เช่น 10")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+    const roleInput = new TextInputBuilder()
+        .setCustomId('prod_role')
+        .setLabel("Role ID ยศที่จะได้รับ (เว้นว่างได้)")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false);
     
     const detailsInput = new TextInputBuilder()
         .setCustomId('prod_links')
-        .setLabel("บรรทัด 1:ลิงก์ดาวน์โหลด | 2:รายละเอียด | 3:รูป")
-        .setPlaceholder("บรรทัด1: ลิงก์ | บรรทัด2: รายละเอียดสินค้า | บรรทัด3: ลิงก์รูปตัวอย่าง")
+        .setLabel("บรรทัด 1:ลิงก์ | 2:รายละเอียด | 3:รูป")
+        .setPlaceholder("บรรทัด1: ลิงก์ดาวน์โหลด\nบรรทัด2: รายละเอียดสินค้า\nบรรทัด3: ลิงก์รูปตัวอย่าง")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false);
 
