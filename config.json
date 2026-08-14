@@ -1,36 +1,20 @@
 {
+    "token": "ใส่_Discord_Bot_Token_ของคุณตรงนี้",
+    "ownerIDs": ["884625041738842233", "ใส่_Discord_ID_รอง_ตรงนี้"],
+    "adminRoleId": "1448273316610838680",
     "phone": "0619612338",
     "channellog": "1537769551595577464",
-    "ownerID": "884625041738842233",
     "ticketChannelId": "1535740901723218002",
     "imageUrl": "https://cdn.discordapp.com/attachments/1536041248706666608/1537743409140334623/standard.gif?ex=6a8026a6&is=6a7ed526&hm=fb0b2d6aaeac19608379587f438564af9a8dda8177d61713dc67c5c7270fd4d9&",
     "products": [
         {
             "id": "prod_1",
-            "name": "ยศ Member ",
+            "name": "TEST ",
             "price": 50,
             "stock": 10,
-            "roleId": "1537735948497064017",
+            "roleId": "",
             "gofileUrl": "",
             "previewImage": ""
-        },
-        {
-            "id": "prod_2",
-            "name": "โปรเเกรมยิงเบอร์",
-            "price": 0,
-            "stock": 99,
-            "roleId": "1537745711989526579",
-            "gofileUrl": "https://gofile.io/d/t0WAHc",
-            "previewImage": "https://cdn.discordapp.com/attachments/1448273041963618386/1537745392941408326/0c666221-335e-4dc0-b78d-c878f0e0122a.png?ex=6a80287f&is=6a7ed6ff&hm=675f9d797520462cb5d02703bfa2b5582a95644f51946d1419c1e30f61b9679f&"
-        },
-        {
-            "id": "prod_3",
-            "name": "ดั้มเซิฟ",
-            "price": 80,
-            "stock": 5,
-            "roleId": "",
-            "gofileUrl": "https://gofile.io/d/t0WAHc",
-            "previewImage": "https://cdn.discordapp.com/attachments/1448273041963618386/1537745392941408326/0c666221-335e-4dc0-b78d-c878f0e0122a.png?ex=6a80287f&is=6a7ed6ff&hm=675f9d797520462cb5d02703bfa2b5582a95644f51946d1419c1e30f61b9679f&"
         }
     ]
 }
