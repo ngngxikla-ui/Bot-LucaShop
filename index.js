@@ -217,7 +217,7 @@ function getAdminPanel() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (อัปเดต 3 บรรทัด: ลิงก์, รายละเอียด, รูป)
+// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (แก้ไข Placeholder ไม่ให้มี \n)
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
@@ -228,8 +228,8 @@ function buildAddProductModal() {
     
     const detailsInput = new TextInputBuilder()
         .setCustomId('prod_links')
-        .setLabel("ลิงก์ (บรรทัด1) | รายละเอียด (2) | รูป (3)")
-        .setPlaceholder("บรรทัดที่ 1: ลิงก์ดาวน์โหลดสินค้า\nบรรทัดที่ 2: รายละเอียด / คำอธิบายสินค้า\nบรรทัดที่ 3: ลิงก์รูปภาพตัวอย่าง (Preview)")
+        .setLabel("บรรทัด 1:ลิงก์ดาวน์โหลด | 2:รายละเอียด | 3:รูป")
+        .setPlaceholder("บรรทัด1: ลิงก์ | บรรทัด2: รายละเอียดสินค้า | บรรทัด3: ลิงก์รูปตัวอย่าง")
         .setStyle(TextInputStyle.Paragraph)
         .setRequired(false);
 
@@ -487,7 +487,6 @@ client.on("interactionCreate", async (interaction) => {
                 return await interaction.reply({ content: "🛒 **โปรดเลือกสินค้าที่คุณต้องการซื้อจากรายการด้านล่าง:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
             }
 
-            // ดูราคาและรายละเอียดสินค้า
             if (interaction.customId === "view_prices") {
                 const products = getProducts();
                 let desc = "📋 **รายการสินค้าทั้งหมดที่มีจำหน่าย:**\n\n";
@@ -709,7 +708,7 @@ client.on("interactionCreate", async (interaction) => {
                 });
             }
 
-            // ➕ เพิ่มสินค้าใหม่ (แยก 3 บรรทัด: ลิงก์, รายละเอียด, รูปภาพ)
+            // ➕ เพิ่มสินค้าใหม่ (แยก 3 บรรทัด)
             if (interaction.customId === "setup2_modal") {
                 await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
@@ -734,7 +733,7 @@ client.on("interactionCreate", async (interaction) => {
                 
                 // แยกเป็น 3 บรรทัด
                 const linesArr = rawDetails.split('\n').map(l => l.trim());
-                const gofileUrl = linesArr[0] || "";      // บรรทัดที่ 1: ลิงก์
+                const gofileUrl = linesArr[0] || "";      // บรรทัดที่ 1: ลิงก์ดาวน์โหลด
                 const description = linesArr[1] || "";    // บรรทัดที่ 2: รายละเอียด
                 const previewImage = linesArr[2] || "";   // บรรทัดที่ 3: รูปภาพ
 
