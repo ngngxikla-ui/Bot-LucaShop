@@ -10,7 +10,7 @@ app.listen(PORT, () => {
     console.log(`Server is listening on port ${PORT}`);
 });
 
-const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder } = require('discord.js');
+const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ActivityType } = require('discord.js');
 const client = new Client({ intents: 32767 });
 const tw = require('@fortune-inc/tw-voucher');
 const config = require('./config.json');
@@ -112,6 +112,10 @@ client.once("ready", () => {
         try {
             let commands = Array.from(commandsMap.values());
             await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+            
+            // ตั้งค่าสถานะกำลังเล่น Roblox
+            client.user.setActivity('Roblox', { type: ActivityType.Playing });
+
             console.log(chalk.green(`✅ เข้าสู่ระบบสำเร็จในชื่อ : ${client.user.tag}`));
         } catch (err) {
             console.error(err);
