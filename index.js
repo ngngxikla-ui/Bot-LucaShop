@@ -53,8 +53,8 @@ commandsMap.set("setup", {
     description: "setup ตั้งค่าทั้งหมด (Admin Only)",
     options: []
 });
-commandsMap.set("setup stock", {
-    name: "setup stock",
+commandsMap.set("setupstock", {
+    name: "setupstock",
     description: "จัดการสต็อก (Admin Only)",
     options: []
 });
