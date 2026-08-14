@@ -124,7 +124,7 @@ function getAdminPanel() {
     const embed = new EmbedBuilder()
         .setColor("DarkButNotBlack")
         .setTitle("⚙️ แผงควบคุมระบบแอดมิน (Admin Control Panel)")
-        .setDescription("เลือกปุ่มเมนูด้านล่างเพื่อจัดการร้านค้าของคุณได้อย่างสะดวกรวดเร็ว:\n\n• **➕ เพิ่มสินค้าใหม่**: สร้างสินค้าใหม่เข้าระบบพร้อมตั้งราคาและยศ\n• **📈 เพิ่มสต็อก**: เติมจำนวนสินค้าเข้าคลัง\n• **📉 ลดสต็อก**: เอาจำนวนสินค้าออกจากคลัง\n• **📊 เช็คสต็อกทั้งหมด**: ตรวจสอบสต็อกและยอดขายทั้งหมด\n• **💳 จัดการเงินผู้ใช้**: เพิ่มหรือหักเงินในบัญชีลูกค้า\n• **🔍 เช็คข้อมูลผู้ใช้**: ตรวจสอบยอดเงินและประวัติการซื้อของลูกค้า")
+        .setDescription("เลือกปุ่มเมนูด้านล่างเพื่อจัดการร้านค้าและสต็อกสินค้าของคุณ:\n\n• **➕ เพิ่มสินค้าใหม่**: สร้างสินค้าใหม่พร้อมเลือกระบบแจกยศอัตโนมัติ\n• **📈 เพิ่มสต็อก**: เติมจำนวนสินค้าเข้าคลัง\n• **📉 ลดสต็อก**: เอาจำนวนสินค้าออกจากคลัง\n• **📊 เช็คสต็อกทั้งหมด**: ตรวจสอบสต็อก, ยอดขาย และสถานะการแจกยศ\n• **💳 จัดการเงินผู้ใช้**: เพิ่มหรือหักเงินในบัญชีลูกค้า\n• **🔍 เช็คข้อมูลผู้ใช้**: ตรวจสอบยอดเงินและประวัติการซื้อของลูกค้า")
         .setTimestamp();
 
     const row1 = new ActionRowBuilder().addComponents(
@@ -172,7 +172,6 @@ client.on("interactionCreate", async (interaction) => {
                     return interaction.reply({ content: "❌ คุณไม่มีสิทธิ์ใช้คำสั่งนี้ (สำหรับ Admin เท่านั้น)", ephemeral: true });
                 }
                 const panel = getAdminPanel();
-                // ส่งแบบสาธารณะในห้อง (ไม่ใส่ ephemeral: true) ตามที่ต้องการ
                 return await interaction.reply(panel);
             }
         }
@@ -239,9 +238,10 @@ client.on("interactionCreate", async (interaction) => {
             config.products.forEach((p, index) => {
                 let stockCount = p.stock !== undefined ? p.stock : 0;
                 let stockDisplay = stockCount > 0 ? `📦 สต็อกเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
+                let roleDisplay = (p.roleId && p.roleId.trim() !== "") ? `<@&${p.roleId}>` : "ไม่มี";
                 
                 desc += `**${index + 1}. ${p.name}** (ID: \`${p.id}\`)\n`;
-                desc += `💵 ราคา: **${p.price} บาท** | ${stockDisplay}\n-----------------------------------\n`;
+                desc += `💵 ราคา: **${p.price} บาท** | ${stockDisplay}\n🏷️ ยศที่จะได้รับ: ${roleDisplay}\n-----------------------------------\n`;
             });
 
             await interaction.reply({
@@ -263,12 +263,12 @@ client.on("interactionCreate", async (interaction) => {
 
             const modal = new ModalBuilder()
                 .setCustomId('setup2_modal')
-                .setTitle('➕ เพิ่มสินค้าและสต็อกใหม่');
+                .setTitle('➕ เพิ่มสินค้าและตั้งค่ายศอัตโนมัติ');
 
             const nameInput = new TextInputBuilder().setCustomId('prod_name').setLabel("ชื่อสินค้า").setStyle(TextInputStyle.Short).setRequired(true);
             const priceInput = new TextInputBuilder().setCustomId('prod_price').setLabel("ราคา (บาท)").setStyle(TextInputStyle.Short).setRequired(true);
-            const stockInput = new TextInputBuilder().setCustomId('prod_stock').setLabel("จำนวนสต็อก (เช่น 5)").setStyle(TextInputStyle.Short).setRequired(true);
-            const roleInput = new TextInputBuilder().setCustomId('prod_role').setLabel("Role ID (ถ้ามีแจกยศอัตโนมัติ)").setStyle(TextInputStyle.Short).setRequired(false);
+            const stockInput = new TextInputBuilder().setCustomId('prod_stock').setLabel("จำนวนสต็อก (เช่น 10)").setStyle(TextInputStyle.Short).setRequired(true);
+            const roleInput = new TextInputBuilder().setCustomId('prod_role').setLabel("Role ID (ถ้าไม่ใส่ปล่อยว่างหรือพิมพ์ ไม่มี)").setStyle(TextInputStyle.Short).setRequired(false);
             const gofileInput = new TextInputBuilder().setCustomId('prod_gofile').setLabel("ลิงก์ดาวน์โหลด (GoFile/อื่นๆ)").setStyle(TextInputStyle.Short).setRequired(false);
 
             modal.addComponents(
@@ -328,9 +328,11 @@ client.on("interactionCreate", async (interaction) => {
                     });
 
                     let stockStatus = stockCount > 0 ? `📦 คงเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
+                    let roleStatus = (p.roleId && p.roleId.trim() !== "" && p.roleId.toLowerCase() !== "ไม่มี") ? `🏷️ Role ID: \`${p.roleId}\`` : "🏷️ ยศ: **ไม่มี**";
+
                     desc += `**${index + 1}. ${p.name}** (ID: \`${p.id}\`)\n`;
                     desc += `${stockStatus} | 🛒 ขายไปแล้ว: **${totalSold} ชิ้น** | 💵 ราคา: **${p.price} บาท**\n`;
-                    if (p.roleId) desc += `🏷️ Role ID: \`${p.roleId}\`\n`;
+                    desc += `${roleStatus}\n`;
                     if (p.gofileUrl) desc += `🔗 ลิงก์ไฟล์: ${p.gofileUrl}\n`;
                     desc += `-----------------------------------\n`;
                 });
@@ -438,17 +440,19 @@ client.on("interactionCreate", async (interaction) => {
             });
             savePurchases(purchases);
 
-            // แจกยศอัตโนมัติ (ถ้าสินค้ามีการตั้งค่า roleId ไว้)
+            // แจกยศอัตโนมัติ (ตรวจสอบว่ามีการใส่ Role ID และไม่ใช่คำว่า "ไม่มี")
             let roleStatusText = "";
-            if (product.roleId && product.roleId.trim() !== "") {
+            if (product.roleId && product.roleId.trim() !== "" && product.roleId.toLowerCase() !== "ไม่มี") {
                 try {
                     const member = await interaction.guild.members.fetch(interaction.user.id);
                     await member.roles.add(product.roleId);
                     roleStatusText = "\n🏷️ **ได้รับยศในเซิร์ฟเวอร์เรียบร้อยแล้ว!**";
                 } catch (err) {
                     console.error("ไม่สามารถเพิ่มยศให้ผู้ใช้ได้:", err);
-                    roleStatusText = "\n⚠️ (ซื้อสำเร็จ แต่บอทไม่สามารถมอบยศได้ กรุณาตรวจสอบสิทธิ์ของบอท)";
+                    roleStatusText = "\n⚠️ (ซื้อสำเร็จ แต่บอทไม่สามารถมอบยศได้ กรุณาตรวจสอบสิทธิ์และ Role ID ของบอท)";
                 }
+            } else {
+                roleStatusText = "\n🏷️ ยศ: **ไม่มี**";
             }
 
             const downloadLink = (product.gofileUrl && product.gofileUrl.trim() !== "") ? `[คลิกเพื่อดาวน์โหลดไฟล์](${product.gofileUrl})` : "ไม่มีลิงก์ดาวน์โหลดไฟล์";
@@ -556,12 +560,18 @@ client.on("interactionCreate", async (interaction) => {
             if (!config.products) config.products = [];
             const newId = `prod_${config.products.length + 1}`;
 
+            let inputRole = interaction.fields.getTextInputValue('prod_role').trim();
+            // ถ้าไม่ใส่ หรือใส่คำว่า "ไม่มี" ให้บันทึกเป็นค่าว่าง ("") เพื่อให้ระบบแสดงผลว่า "ไม่มี"
+            if (!inputRole || inputRole.toLowerCase() === "ไม่มี" || inputRole === "no") {
+                inputRole = "";
+            }
+
             const newProd = {
                 id: newId,
                 name: interaction.fields.getTextInputValue('prod_name'),
                 price: parseFloat(interaction.fields.getTextInputValue('prod_price')) || 0,
                 stock: parseInt(interaction.fields.getTextInputValue('prod_stock')) || 0,
-                roleId: interaction.fields.getTextInputValue('prod_role') || "",
+                roleId: inputRole,
                 gofileUrl: interaction.fields.getTextInputValue('prod_gofile') || "",
                 previewImage: ""
             };
@@ -569,8 +579,10 @@ client.on("interactionCreate", async (interaction) => {
             config.products.push(newProd);
             fs.writeFileSync('./config.json', JSON.stringify(config, null, 4), 'utf8');
 
+            let roleDisplayResult = newProd.roleId !== "" ? `<@&${newProd.roleId}>` : "ไม่มี";
+
             await interaction.reply({
-                content: `✅ เพิ่มสินค้า **${newProd.name}** (ID: \`${newId}\` | จำนวนสต็อก: **${newProd.stock} ชิ้น**) เข้าสู่ระบบเรียบร้อยแล้ว!`,
+                content: `✅ เพิ่มสินค้า **${newProd.name}** สำเร็จ!\n📦 สต็อก: **${newProd.stock} ชิ้น** | 🏷️ ยศที่จะได้รับ: ${roleDisplayResult}`,
                 ephemeral: true
             });
         }
