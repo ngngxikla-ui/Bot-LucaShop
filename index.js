@@ -31,6 +31,48 @@ const chalk = require('chalk');
 const botToken = process.env.TOKEN || config.token;
 
 // ---------------------------------------------------------
+// ระบบความปลอดภัยสำหรับการเติมเงินผ่านธนาคาร / PromptPay
+// ---------------------------------------------------------
+const TOPUP_FILE = './topups.json';
+let dbWriteQueue = Promise.resolve();
+const purchaseLocks = new Set();
+
+function getTopups() {
+    if (!fs.existsSync(TOPUP_FILE)) fs.writeFileSync(TOPUP_FILE, JSON.stringify({}, null, 4));
+    try { return JSON.parse(fs.readFileSync(TOPUP_FILE, 'utf8')); } catch { return {}; }
+}
+
+function saveTopups(data) {
+    const tmp = `${TOPUP_FILE}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
+    fs.renameSync(tmp, TOPUP_FILE);
+}
+
+function queueDbWrite(task) {
+    const run = dbWriteQueue.then(() => task());
+    dbWriteQueue = run.catch(() => {});
+    return run;
+}
+
+function makeTopupId(userId) {
+    return `BANK-${Date.now().toString(36).toUpperCase()}-${String(userId).slice(-6)}`;
+}
+
+function normalizeMoney(value) {
+    const n = Number(String(value).replace(/,/g, '').trim());
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
+function getBankTopupDescription() {
+    return [
+        `🏦 **ชื่อบัญชี:** ${config.bankAccountName || '-'}`,
+        `🏦 **ธนาคาร:** ${config.bankName || '-'}`,
+        `💳 **เลขบัญชี:** ${config.bankAccountNumber || '-'}`,
+        `📱 **พร้อมเพย์:** ${config.promptpayNumber || '-'}`
+    ].join('\n');
+}
+
+// ---------------------------------------------------------
 // ระบบจัดการฐานข้อมูล (JSON Files)
 // ---------------------------------------------------------
 const DB_FILE = './balances.json';
@@ -174,14 +216,18 @@ client.once("ready", () => {
 function createShopMenu() {
     const embed = new EmbedBuilder()
         .setTitle('🛒 LucaShop')
-        .setDescription('• เติมเงินผ่านซองทรูมันนี่\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง\n• เลือกโปรแกรมฟรีได้ข้างล่าง')
+        .setDescription('• เติมเงินผ่านซองทรูมันนี่ หรือ QR/PromptPay/ธนาคาร\n• ระบบธนาคารจะสร้างรายการเฉพาะผู้ใช้และรอตรวจสอบสลิปก่อนเข้ายอด\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง\n• เลือกโปรแกรมฟรีได้ข้างล่าง')
         .setColor('Blue');
     
     if (config.imageUrl && config.imageUrl !== "") embed.setImage(config.imageUrl);
 
     const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('topup_menu').setLabel('💰 เติมเงิน (ซองอั่งเปา)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('check_balance').setLabel('💳 ดูยอดเงินในบัญชี').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('topup_menu').setLabel('💰 เติมเงิน (TrueMoney)').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('bank_topup_menu').setLabel('🏦 เติมผ่าน QR/ธนาคาร').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('check_balance').setLabel('💳 ดูยอดเงินในบัญชี').setStyle(ButtonStyle.Primary)
+    );
+
+    const row1b = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('buy_menu').setLabel('🛒 เลือกซื้อสินค้า').setStyle(ButtonStyle.Secondary)
     );
 
@@ -190,7 +236,7 @@ function createShopMenu() {
         new ButtonBuilder().setCustomId('contact_admin').setLabel('🎫 ติดต่อแอดมิน').setStyle(ButtonStyle.Danger)
     );
 
-    return { embeds: [embed], components: [row1, row2] };
+    return { embeds: [embed], components: [row1, row1b, row2] };
 }
 
 // ฟังก์ชันสร้างหน้า Control Room
@@ -490,6 +536,46 @@ client.on("interactionCreate", async (interaction) => {
                 return await interaction.showModal(modal);
             }
 
+            if (interaction.customId === "bank_topup_menu") {
+                const topups = getTopups();
+                const existing = Object.values(topups).find(t =>
+                    t.userId === interaction.user.id && ['awaiting_slip', 'pending'].includes(t.status)
+                );
+                if (existing) {
+                    return interaction.reply({
+                        embeds: [new EmbedBuilder()
+                            .setColor("Orange")
+                            .setTitle("⏳ มีรายการเติมเงินที่กำลังตรวจสอบ")
+                            .setDescription(`คุณมีรายการค้างอยู่แล้ว\n🧾 รายการ: **${existing.id}**\n💰 จำนวน: **${existing.amount} บาท**\n\nกรุณารอรายการเดิมเสร็จก่อน เพื่อป้องกันการเติมเงินซ้อน/เข้าผิดบัญชี.`)],
+                        ephemeral: true
+                    });
+                }
+
+                const modal = new ModalBuilder()
+                    .setCustomId('bank_topup_modal')
+                    .setTitle('🏦 เติมเงินผ่าน QR / PromptPay / ธนาคาร');
+
+                const amountInput = new TextInputBuilder()
+                    .setCustomId('bank_amount')
+                    .setLabel("จำนวนเงินที่โอน (บาท)")
+                    .setPlaceholder("เช่น 100")
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true);
+
+                const refInput = new TextInputBuilder()
+                    .setCustomId('bank_ref')
+                    .setLabel("เลขอ้างอิงจากสลิป (ถ้ามี)")
+                    .setPlaceholder("เช่น 123456789")
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(false);
+
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(amountInput),
+                    new ActionRowBuilder().addComponents(refInput)
+                );
+                return await interaction.showModal(modal);
+            }
+
             if (interaction.customId === "check_balance") {
                 const balances = getBalances();
                 return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Blurple").setTitle("💳 ยอดเงินคงเหลือของคุณ").setDescription(`บัญชีของคุณ: <@${interaction.user.id}>\n💰 ยอดเงินสะสม: **${balances[interaction.user.id] || 0} บาท**`)], ephemeral: true });
@@ -630,17 +716,43 @@ client.on("interactionCreate", async (interaction) => {
                     return interaction.update({ content: `❌ เงินไม่พอซื้อ **${product.name}**\n💰 เงินของคุณ: **${userBalance} บาท** | ต้องการ: **${product.price} บาท**`, components: [], ephemeral: true });
                 }
 
-                // ตัดเงินและหักสต็อก
-                balances[interaction.user.id] -= product.price;
-                saveBalances(balances);
+                // ล็อกผู้ซื้อแต่ละคนชั่วคราว ป้องกันกดซื้อซ้อนจนยอด/สต็อกผิด
+                const purchaseLockKey = `${interaction.user.id}:${product.id}`;
+                if (purchaseLocks.has(purchaseLockKey)) {
+                    return interaction.update({ content: "⏳ กำลังประมวลผลรายการก่อนหน้า กรุณารอสักครู่", components: [], ephemeral: true });
+                }
+                purchaseLocks.add(purchaseLockKey);
 
-                product.stock = currentStock - 1;
-                saveProducts(products);
+                try {
+                    const latestProducts = getProducts();
+                    const latestProduct = latestProducts.find(p => p.id === product.id);
+                    if (!latestProduct || (latestProduct.stock || 0) <= 0) {
+                        return interaction.update({ content: "❌ สินค้าหมดหรือถูกซื้อไปแล้ว กรุณาลองใหม่", components: [], ephemeral: true });
+                    }
 
-                const purchases = getPurchases();
-                if (!purchases[interaction.user.id]) purchases[interaction.user.id] = [];
-                purchases[interaction.user.id].push({ productName: product.name, price: product.price, date: new Date().toISOString() });
-                savePurchases(purchases);
+                    const latestBalances = getBalances();
+                    const latestBalance = latestBalances[interaction.user.id] || 0;
+                    if (latestBalance < latestProduct.price) {
+                        return interaction.update({ content: `❌ เงินไม่พอซื้อ **${latestProduct.name}**\n💰 เงินของคุณ: **${latestBalance} บาท** | ต้องการ: **${latestProduct.price} บาท**`, components: [], ephemeral: true });
+                    }
+
+                    latestBalances[interaction.user.id] = latestBalance - latestProduct.price;
+                    latestProduct.stock = (latestProduct.stock || 0) - 1;
+                    saveBalances(latestBalances);
+                    saveProducts(latestProducts);
+
+                    const purchases = getPurchases();
+                    if (!purchases[interaction.user.id]) purchases[interaction.user.id] = [];
+                    purchases[interaction.user.id].push({ productName: latestProduct.name, price: latestProduct.price, date: new Date().toISOString() });
+                    savePurchases(purchases);
+
+                    balances[interaction.user.id] = latestBalances[interaction.user.id];
+                    product.name = latestProduct.name;
+                    product.price = latestProduct.price;
+                    product.stock = latestProduct.stock;
+                } finally {
+                    purchaseLocks.delete(purchaseLockKey);
+                }
 
                 let roleStatusText = "";
                 if (product.roleId && product.roleId !== "") {
@@ -727,6 +839,71 @@ client.on("interactionCreate", async (interaction) => {
                     if (logChannel) logChannel.send({ embeds: [new EmbedBuilder().setTitle("💸 ประวัติการเติมเงิน").setDescription(`ผู้เติม: <@${interaction.user.id}>\nจำนวน: **${re.amount} บาท**`).setColor("Green").setTimestamp()] });
                 }).catch(async () => {
                     await interaction.editReply({ embeds: [new EmbedBuilder().setColor("Red").setDescription("❌ เติมเงินไม่ผ่าน: ลิงก์ผิด, มีคนใช้แล้ว หรือหมดอายุ")] });
+                });
+            }
+
+            // 🏦 สร้างรายการเติมเงินผ่าน QR / PromptPay / ธนาคาร
+            if (interaction.customId === "bank_topup_modal") {
+                const amount = normalizeMoney(interaction.fields.getTextInputValue('bank_amount'));
+                const ref = (interaction.fields.getTextInputValue('bank_ref') || '').trim();
+
+                if (!amount) {
+                    return interaction.reply({ content: "❌ จำนวนเงินไม่ถูกต้อง กรุณากรอกเป็นตัวเลข เช่น 100", ephemeral: true });
+                }
+
+                const topupId = makeTopupId(interaction.user.id);
+
+                const result = await queueDbWrite(async () => {
+                    const topups = getTopups();
+                    const existing = Object.values(topups).find(t =>
+                        t.userId === interaction.user.id && ['awaiting_slip', 'pending'].includes(t.status)
+                    );
+                    if (existing) return { error: existing };
+
+                    topups[topupId] = {
+                        id: topupId,
+                        userId: interaction.user.id,
+                        amount,
+                        reference: ref,
+                        status: 'awaiting_slip',
+                        createdAt: new Date().toISOString(),
+                        slipMessageId: null,
+                        slipUrl: null,
+                        approvedBy: null,
+                        approvedAt: null
+                    };
+                    saveTopups(topups);
+                    return { topup: topups[topupId] };
+                });
+
+                if (result.error) {
+                    return interaction.reply({
+                        content: `⏳ คุณมีรายการเติมเงินค้างอยู่แล้ว: **${result.error.id}**\nกรุณาส่งสลิปของรายการเดิมก่อน`,
+                        ephemeral: true
+                    });
+                }
+
+                const topup = result.topup;
+                const bankInfo = getBankTopupDescription();
+                const qrLine = config.bankQrImageUrl && !String(config.bankQrImageUrl).startsWith("ใส่")
+                    ? `\n\n🖼️ **QR:** ${config.bankQrImageUrl}` : "";
+
+                return await interaction.reply({
+                    embeds: [new EmbedBuilder()
+                        .setColor("Blue")
+                        .setTitle("🏦 รายการเติมเงินถูกสร้างแล้ว")
+                        .setDescription(
+                            `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
+                            `💰 **จำนวน:** **${topup.amount} บาท**\n\n` +
+                            `${bankInfo}${qrLine}\n\n` +
+                            `**ขั้นตอนสำคัญ:**\n` +
+                            `1. โอนเงินเข้าบัญชีด้านบนเท่านั้น\n` +
+                            `2. หลังโอนแล้ว ให้ส่ง **รูปสลิปตัวจริง** ในห้อง <#${config.slipChannelId || config.ticketChannelId}>\n` +
+                            `3. พิมพ์รหัสรายการ \`${topup.id}\` พร้อมสลิป\n` +
+                            `4. ระบบจะยัง **ไม่เพิ่มเงิน** จนกว่าแอดมินจะตรวจสอบและกดอนุมัติ\n\n` +
+                            `⚠️ รายการนี้ผูกกับ Discord ID ของคุณโดยตรง และใช้สลิปซ้ำ/อนุมัติซ้ำไม่ได้`
+                        )],
+                    ephemeral: true
                 });
             }
 
@@ -839,6 +1016,175 @@ client.on("interactionCreate", async (interaction) => {
         console.error('Interaction Error:', error);
         if (!interaction.replied && !interaction.deferred) {
             await interaction.reply({ content: '❌ เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง', ephemeral: true }).catch(() => {});
+        }
+    }
+});
+
+
+// ---------------------------------------------------------
+// รับสลิปจากห้องที่กำหนด + ผูกกับรายการของเจ้าของเท่านั้น
+// ---------------------------------------------------------
+client.on('messageCreate', async (message) => {
+    try {
+        if (message.author.bot) return;
+        if (!config.slipChannelId || message.channel.id !== config.slipChannelId) return;
+
+        const attachment = message.attachments.find(a => {
+            const type = a.contentType || '';
+            return type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(a.name || '');
+        });
+        if (!attachment) return;
+
+        const match = message.content.match(/BANK-[A-Z0-9-]+/i);
+        if (!match) {
+            return message.reply("❌ กรุณาระบุ **รหัสรายการเติมเงิน** พร้อมสลิป เช่น `BANK-XXXXXX-123456`");
+        }
+
+        const topupId = match[0].toUpperCase();
+
+        const result = await queueDbWrite(async () => {
+            const topups = getTopups();
+            const topup = topups[topupId];
+
+            if (!topup) return { error: "ไม่พบรหัสรายการนี้" };
+            if (topup.userId !== message.author.id) return { error: "รายการนี้เป็นของผู้ใช้อื่น ไม่สามารถผูกสลิปข้ามบัญชีได้" };
+            if (topup.status !== 'awaiting_slip') return { error: "รายการนี้ถูกส่งสลิปหรือดำเนินการไปแล้ว" };
+
+            topup.status = 'pending';
+            topup.slipMessageId = message.id;
+            topup.slipUrl = attachment.url;
+            topup.submittedAt = new Date().toISOString();
+            saveTopups(topups);
+            return { topup };
+        });
+
+        if (result.error) return message.reply(`❌ ${result.error}`);
+
+        const topup = result.topup;
+        const logChannel = message.guild?.channels.cache.get(config.channellog);
+
+        if (logChannel) {
+            const approveRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`bank_approve_${topup.id}`)
+                    .setLabel('✅ อนุมัติเติมเงิน')
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId(`bank_reject_${topup.id}`)
+                    .setLabel('❌ ปฏิเสธ')
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            await logChannel.send({
+                embeds: [new EmbedBuilder()
+                    .setColor("Orange")
+                    .setTitle("🏦 มีรายการเติมเงินธนาคารรอตรวจสอบ")
+                    .setDescription(
+                        `🧾 **รายการ:** \`${topup.id}\`\n` +
+                        `👤 **ผู้เติม:** <@${topup.userId}> (ID: \`${topup.userId}\`)\n` +
+                        `💰 **จำนวน:** **${topup.amount} บาท**\n` +
+                        `🔖 **อ้างอิง:** ${topup.reference || '-'}\n` +
+                        `🖼️ **สลิป:** ${topup.slipUrl}`
+                    )
+                    .setImage(topup.slipUrl)
+                    .setTimestamp()],
+                components: [approveRow]
+            });
+        }
+
+        await message.reply(`✅ รับสลิปแล้ว รายการ \`${topup.id}\` อยู่ระหว่างตรวจสอบ กรุณารอแอดมินอนุมัติ`);
+    } catch (err) {
+        console.error("Slip processing error:", err);
+    }
+});
+
+// ---------------------------------------------------------
+// ปุ่มอนุมัติ/ปฏิเสธรายการเติมเงิน
+// ---------------------------------------------------------
+client.on('interactionCreate', async (interaction) => {
+    try {
+        if (!interaction.isButton()) return;
+        if (!interaction.customId.startsWith('bank_approve_') && !interaction.customId.startsWith('bank_reject_')) return;
+
+        if (!isAdmin(interaction)) {
+            return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
+        }
+
+        const isApprove = interaction.customId.startsWith('bank_approve_');
+        const topupId = interaction.customId.replace(/^bank_(approve|reject)_/, '');
+
+        const result = await queueDbWrite(async () => {
+            const topups = getTopups();
+            const topup = topups[topupId];
+
+            if (!topup) return { error: "ไม่พบรายการเติมเงิน" };
+            if (topup.status !== 'pending') return { error: `รายการนี้มีสถานะ **${topup.status}** และไม่สามารถดำเนินการซ้ำได้` };
+
+            if (!isApprove) {
+                topup.status = 'rejected';
+                topup.approvedBy = interaction.user.id;
+                topup.approvedAt = new Date().toISOString();
+                saveTopups(topups);
+                return { topup, rejected: true };
+            }
+
+            const balances = getBalances();
+            if (!balances[topup.userId]) balances[topup.userId] = 0;
+
+            // ยอดเงิน + เปลี่ยนสถานะรายการในคิวเดียวกัน
+            balances[topup.userId] += topup.amount;
+            saveBalances(balances);
+
+            topup.status = 'approved';
+            topup.approvedBy = interaction.user.id;
+            topup.approvedAt = new Date().toISOString();
+            topup.balanceAfter = balances[topup.userId];
+            saveTopups(topups);
+
+            return { topup, balance: balances[topup.userId] };
+        });
+
+        if (result.error) return interaction.reply({ content: `❌ ${result.error}`, ephemeral: true });
+
+        if (result.rejected) {
+            return interaction.update({
+                embeds: [new EmbedBuilder()
+                    .setColor("Red")
+                    .setTitle("❌ รายการเติมเงินถูกปฏิเสธ")
+                    .setDescription(`รายการ \`${topupId}\` ถูกปฏิเสธโดย <@${interaction.user.id}>`)
+                    .setTimestamp()],
+                components: []
+            });
+        }
+
+        const topup = result.topup;
+
+        await interaction.update({
+            embeds: [new EmbedBuilder()
+                .setColor("Green")
+                .setTitle("✅ อนุมัติเติมเงินสำเร็จ")
+                .setDescription(
+                    `🧾 รายการ: \`${topup.id}\`\n` +
+                    `👤 ผู้ใช้: <@${topup.userId}>\n` +
+                    `💰 เติม: **${topup.amount} บาท**\n` +
+                    `💳 ยอดใหม่: **${result.balance} บาท**\n` +
+                    `👮 อนุมัติโดย: <@${interaction.user.id}>`
+                )
+                .setTimestamp()],
+            components: []
+        });
+
+        try {
+            const user = await client.users.fetch(topup.userId);
+            await user.send(
+                `✅ **เติมเงินสำเร็จ**\nรายการ: \`${topup.id}\`\n` +
+                `ได้รับ: **${topup.amount} บาท**\nยอดคงเหลือ: **${result.balance} บาท**`
+            );
+        } catch {}
+    } catch (err) {
+        console.error("Bank topup approval error:", err);
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({ content: "❌ เกิดข้อผิดพลาดขณะดำเนินการรายการเติมเงิน", ephemeral: true }).catch(() => {});
         }
     }
 });
