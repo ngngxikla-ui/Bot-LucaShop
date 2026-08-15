@@ -854,14 +854,14 @@ client.on("interactionCreate", async (interaction) => {
                     replyMsg += '\n\n📥 **ลิงก์ดาวน์โหลดสินค้า:**\n' + product.downloadUrl;
                 }
 
-              if (config.channellog) {
+                if (config.channellog) {
                     const logChannel = interaction.guild.channels.cache.get(config.channellog) || await interaction.guild.channels.fetch(config.channellog).catch(() => null);
                     if (logChannel) {
                         logChannel.send({
                             embeds: [new EmbedBuilder()
                                 .setColor("Green")
                                 .setTitle("🛒 สั่งซื้อสินค้าสำเร็จ")
-                                .setDescription('👤 ผู้ซื้อ: <@' + interaction.user.id + '>\n📦 สินค้า: **' + product.name + '**\n💰 ราคา: **' + product.price + ' บาท**')
+                                .setDescription(`👤 ผู้ซื้อ: <@${interaction.user.id}>\n📦 สินค้า: **${product.name}**\n💰 ราคา: **${product.price} บาท**`)
                                 .setTimestamp()
                             ]
                         });
@@ -880,7 +880,7 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             if (interaction.customId === "contact_admin") {
-                const targetChannel = config.ticketChannelId ? `<#${config.ticketChannelId}>` : `แอดมิน <@${config.ownerIDs[0]}>`;
+                const targetChannel = config.ticketChannelId ? `<#${config.ticketChannelId}>` : (config.ownerIDs && config.ownerIDs[0] ? `แอดมิน <@${config.ownerIDs[0]}>` : 'แอดมินของร้าน');
                 return interaction.reply({ content: `📞 หากต้องการความช่วยเหลือ สามารถเปิดทิคเก็ตหรือติดต่อได้ที่: ${targetChannel} ครับ`, ephemeral: true });
             }
 
