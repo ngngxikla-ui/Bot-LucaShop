@@ -7,7 +7,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server is listening on port ${PORT}`);
+    console.log("Server is listening on port " + PORT);
 });
 
 const { 
@@ -67,9 +67,9 @@ function generatePayload(target, options = {}) {
     }
 
     const tag29_00 = '0016A000000677010111';
-    const tag29_01 = `${targetType}${String(targetFormatted.length).padStart(2, '0')}${targetFormatted}`;
+    const tag29_01 = targetType + String(targetFormatted.length).padStart(2, '0') + targetFormatted;
     const tag29Val = tag29_00 + tag29_01;
-    const tag29 = `29${String(tag29Val.length).padStart(2, '0')}${tag29Val}`;
+    const tag29 = '29' + String(tag29Val.length).padStart(2, '0') + tag29Val;
 
     const tag00 = '000201';
     const tag01 = amount ? '010212' : '010211';
@@ -79,7 +79,7 @@ function generatePayload(target, options = {}) {
     let raw = tag00 + tag01 + tag29 + tag53;
     if (amount !== undefined && amount !== null && amount !== '') {
         const amtStr = Number(amount).toFixed(2);
-        raw += `54${String(amtStr.length).padStart(2, '0')}${amtStr}`;
+        raw += '54' + String(amtStr.length).padStart(2, '0') + amtStr;
     }
     raw += tag58 + '6304';
 
@@ -106,7 +106,7 @@ function getTopups() {
     try { return JSON.parse(fs.readFileSync(TOPUP_FILE, 'utf8')); } catch { return {}; }
 }
 function saveTopups(data) {
-    const tmp = `${TOPUP_FILE}.tmp`;
+    const tmp = TOPUP_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
     fs.renameSync(tmp, TOPUP_FILE);
 }
@@ -115,7 +115,7 @@ function getBalances() {
     try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch { return {}; }
 }
 function saveBalances(data) {
-    const tmp = `${DB_FILE}.tmp`;
+    const tmp = DB_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
     fs.renameSync(tmp, DB_FILE);
 }
@@ -128,7 +128,7 @@ function getProducts() {
     try { return JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8')); } catch { return []; }
 }
 function saveProducts(data) {
-    const tmp = `${PRODUCTS_FILE}.tmp`;
+    const tmp = PRODUCTS_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
     fs.renameSync(tmp, PRODUCTS_FILE);
 }
@@ -137,7 +137,7 @@ function getGiveaways() {
     try { return JSON.parse(fs.readFileSync(GIVEAWAYS_FILE, 'utf8')); } catch { return {}; }
 }
 function saveGiveaways(data) {
-    const tmp = `${GIVEAWAYS_FILE}.tmp`;
+    const tmp = GIVEAWAYS_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
     fs.renameSync(tmp, GIVEAWAYS_FILE);
 }
@@ -149,7 +149,7 @@ function queueDbWrite(task) {
 }
 
 function makeTopupId(userId) {
-    return `BANK-${Date.now().toString(36).toUpperCase()}-${String(userId).slice(-6)}`;
+    return 'BANK-' + Date.now().toString(36).toUpperCase() + '-' + String(userId).slice(-6);
 }
 
 function normalizeMoney(value) {
@@ -159,10 +159,10 @@ function normalizeMoney(value) {
 
 function getBankTopupDescription() {
     return [
-        `🏦 **ชื่อบัญชี:** ${config.bankAccountName || '-'}`,
-        `🏦 **ธนาคาร:** ${config.bankName || '-'}`,
-        `💳 **เลขบัญชี:** ${config.bankAccountNumber || '-'}`,
-        `📱 **พร้อมเพย์:** ${config.promptpayNumber || '-'}`
+        '🏦 **ชื่อบัญชี:** ' + (config.bankAccountName || '-'),
+        '🏦 **ธนาคาร:** ' + (config.bankName || '-'),
+        '💳 **เลขบัญชี:** ' + (config.bankAccountNumber || '-'),
+        '📱 **พร้อมเพย์:** ' + (config.promptpayNumber || '-')
     ].join('\n');
 }
 
@@ -193,7 +193,7 @@ async function verifyBankSlipByUrl(slipUrl, expectedAmount, topupId) {
     const response = await fetch('https://api.easyslip.com/v2/verify/bank', {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            'Authorization': 'Bearer ' + apiKey,
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -207,7 +207,7 @@ async function verifyBankSlipByUrl(slipUrl, expectedAmount, topupId) {
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) {
-        throw new Error(result?.error?.message || `EasySlip HTTP ${response.status}`);
+        throw new Error(result?.error?.message || 'EasySlip HTTP ' + response.status);
     }
 
     const data = result.data || {};
@@ -253,7 +253,7 @@ function parseGiveawayMoreOptions(str) {
             roleMention = p;
         } else if (/^\d{17,20}$/.test(p)) {
             if (!giveRoleId) giveRoleId = p;
-            else if (!roleMention) roleMention = `<@&${p}>`;
+            else if (!roleMention) roleMention = '<@&' + p + '>';
         }
     });
 
@@ -292,20 +292,20 @@ async function sendStockNotification(client, type, product, amountAdded = 0) {
     if (type === 'add') {
         embed.setTitle('📦 อัปเดตสต็อก / สินค้าใหม่เข้าสู่ระบบ')
             .setDescription(
-                `> **ชื่อสินค้า:** \`${product.name}\`\n` +
-                `> **ID สินค้า:** \`${product.id}\`\n` +
-                `> **ราคา:** **${product.price}** บาท\n` +
-                `> **จำนวนที่เพิ่ม:** **+${amountAdded}** ชิ้น\n` +
-                `> **สต็อกคงเหลือรวม:** **${stockCount}** ชิ้น\n\n` +
-                `📝 **รายละเอียดสินค้า:**\n${product.desc || 'ไม่มีรายละเอียด'}`
+                '> **ชื่อสินค้า:** `' + product.name + '`\n' +
+                '> **ID สินค้า:** `' + product.id + '`\n' +
+                '> **ราคา:** **' + product.price + '** บาท\n' +
+                '> **จำนวนที่เพิ่ม:** **+' + amountAdded + '** ชิ้น\n' +
+                '> **สต็อกคงเหลือรวม:** **' + stockCount + '** ชิ้น\n\n' +
+                '📝 **รายละเอียดสินค้า:**\n' + (product.desc || 'ไม่มีรายละเอียด')
             )
             .setColor('#57F287');
     } else if (type === 'empty') {
         embed.setTitle('⚠️ แจ้งเตือนสินค้าหมดสต็อก!')
             .setDescription(
-                `> **ชื่อสินค้า:** \`${product.name}\`\n` +
-                `> **ID สินค้า:** \`${product.id}\`\n\n` +
-                `❌ ขณะนี้สินค้าดังกล่าวหมดสต็อกเรียบร้อยแล้ว แอดมินโปรดพิจารณาเติมสต็อกด่วน!`
+                '> **ชื่อสินค้า:** `' + product.name + '`\n' +
+                '> **ID สินค้า:** `' + product.id + '`\n\n' +
+                '❌ ขณะนี้สินค้าดังกล่าวหมดสต็อกเรียบร้อยแล้ว แอดมินโปรดพิจารณาเติมสต็อกด่วน!'
             )
             .setColor('#ED4245');
     }
@@ -366,8 +366,8 @@ client.once("ready", () => {
         try {
             await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
             client.user.setActivity('Roblox', { type: ActivityType.Playing });
-            console.log(chalk.green(`✅ เข้าสู่ระบบสำเร็จในชื่อ : ${client.user.tag}`));
-            console.log(chalk.blue(`⚙️ ลงทะเบียน Slash Commands แบบล็อกสิทธิ์แอดมินเรียบร้อยแล้ว!`));
+            console.log(chalk.green('✅ เข้าสู่ระบบสำเร็จในชื่อ : ' + client.user.tag));
+            console.log(chalk.blue('⚙️ ลงทะเบียน Slash Commands แบบล็อกสิทธิ์แอดมินเรียบร้อยแล้ว!'));
         } catch (err) {
             console.error(err);
         }
@@ -449,7 +449,7 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
     } catch (err) {
         console.error("EasySlip verification error:", err);
         return await interaction.followUp({
-            embeds: [new EmbedBuilder().setColor("Red").setTitle("⚠️ ตรวจสอบสลิปไม่ผ่าน").setDescription(`**สาเหตุ:** ${err.message || err}\nกรุณาลองกดเติมเงินใหม่อีกครั้งครับ`)],
+            embeds: [new EmbedBuilder().setColor("Red").setTitle("⚠️ ตรวจสอบสลิปไม่ผ่าน").setDescription('**สาเหตุ:** ' + (err.message || err) + '\nกรุณาลองกดเติมเงินใหม่อีกครั้งครับ')],
             ephemeral: true
         });
     }
@@ -480,12 +480,12 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
                 .setColor("Red")
                 .setTitle("❌ สลิปไม่ผ่านการตรวจสอบ")
                 .setDescription(
-                    `🧾 รายการ: \`${topup.id}\`\n` +
-                    `💰 ยอดที่ต้องโอน: **${topup.amount.toFixed(2)} บาท**\n` +
-                    `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\n` +
-                    `📌 ยอดเงินตรง: ${amountMatched ? '✅' : '❌'}\n` +
-                    `🏦 บัญชีผู้รับตรง: ${accountMatched ? '✅' : '❌'}\n` +
-                    `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}`
+                    '🧾 รายการ: `' + topup.id + '`\n' +
+                    '💰 ยอดที่ต้องโอน: **' + topup.amount.toFixed(2) + ' บาท**\n' +
+                    '💵 ยอดในสลิป: **' + Number(verification.amount || 0).toFixed(2) + ' บาท**\n' +
+                    '📌 ยอดเงินตรง: ' + (amountMatched ? '✅' : '❌') + '\n' +
+                    '🏦 บัญชีผู้รับตรง: ' + (accountMatched ? '✅' : '❌') + '\n' +
+                    '♻️ สลิปซ้ำ: ' + (duplicate || localTransRefUsed ? '❌' : '✅')
                 )
             ],
             ephemeral: true
@@ -518,9 +518,9 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
             .setColor("Green")
             .setTitle("✅ เติมเงินสำเร็จ!")
             .setDescription(
-                `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
-                `💰 **ยอดเงินที่ได้รับ:** **${topup.amount.toFixed(2)} บาท**\n` +
-                `💳 **ยอดเงินคงเหลือใหม่:** **${approved.balance.toFixed(2)} บาท**`
+                '🧾 **รหัสรายการ:** `' + topup.id + '`\n' +
+                '💰 **ยอดเงินที่ได้รับ:** **' + topup.amount.toFixed(2) + ' บาท**\n' +
+                '💳 **ยอดเงินคงเหลือใหม่:** **' + approved.balance.toFixed(2) + ' บาท**'
             )
         ],
         ephemeral: true
@@ -533,7 +533,7 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
                 embeds: [new EmbedBuilder()
                     .setColor("Green")
                     .setTitle("🏦 เติมเงินสำเร็จ (Auto Verified)")
-                    .setDescription(`👤 ผู้เติม: <@${topup.userId}>\n🧾 รายการ: \`${topup.id}\`\n💰 จำนวน: **${topup.amount.toFixed(2)} บาท**\n💳 ยอดสะสม: **${approved.balance.toFixed(2)} บาท**`)
+                    .setDescription('👤 ผู้เติม: <@' + topup.userId + '>\n🧾 รายการ: `' + topup.id + '`\n💰 จำนวน: **' + topup.amount.toFixed(2) + ' บาท**\n💳 ยอดสะสม: **' + approved.balance.toFixed(2) + ' บาท**')
                     .setTimestamp()
                 ]
             });
@@ -570,11 +570,11 @@ client.on("interactionCreate", async (interaction) => {
 
                 const products = getProducts();
                 if (products.some(p => p.id === id)) {
-                    return interaction.reply({ content: `❌ มีสินค้า ID \`${id}\` ในระบบแล้ว`, ephemeral: true });
+                    return interaction.reply({ content: '❌ มีสินค้า ID `' + id + '` ในระบบแล้ว', ephemeral: true });
                 }
 
                 let stockArr = [];
-                for (let i = 0; i < initialStock; i++) stockArr.push(`[สิทธิ์การใช้งานสินค้า - ${nameProd}]`);
+                for (let i = 0; i < initialStock; i++) stockArr.push('[สิทธิ์การใช้งานสินค้า - ' + nameProd + ']');
 
                 const newObj = { id, name: nameProd, price, desc, imageUrl, roleId, downloadUrl, stock: stockArr };
                 products.push(newObj);
@@ -582,7 +582,7 @@ client.on("interactionCreate", async (interaction) => {
 
                 await sendStockNotification(interaction.client, 'add', newObj, initialStock);
 
-                return interaction.reply({ content: `✅ เพิ่มสินค้า \`${nameProd}\` (ID: \`${id}\`) พร้อมสต็อกเริ่มต้น ${initialStock} ชิ้น เรียบร้อย!`, ephemeral: true });
+                return interaction.reply({ content: '✅ เพิ่มสินค้า `' + nameProd + '` (ID: `' + id + '`) พร้อมสต็อกเริ่มต้น ' + initialStock + ' ชิ้น เรียบร้อย!', ephemeral: true });
             }
 
             if (name === 'delproduct') {
@@ -592,11 +592,11 @@ client.on("interactionCreate", async (interaction) => {
                 products = products.filter(p => p.id !== productId);
 
                 if (products.length === initialLen) {
-                    return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${productId}\``, ephemeral: true });
+                    return interaction.reply({ content: '❌ ไม่พบสินค้า ID `' + productId + '`', ephemeral: true });
                 }
 
                 saveProducts(products);
-                return interaction.reply({ content: `🗑️ ลบสินค้า ID \`${productId}\` เรียบร้อยแล้ว`, ephemeral: true });
+                return interaction.reply({ content: '🗑️ ลบสินค้า ID `' + productId + '` เรียบร้อยแล้ว', ephemeral: true });
             }
 
             if (name === 'addstock') {
@@ -606,16 +606,16 @@ client.on("interactionCreate", async (interaction) => {
                 const products = getProducts();
                 const p = products.find(x => x.id === productId);
                 if (!p) {
-                    return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${productId}\``, ephemeral: true });
+                    return interaction.reply({ content: '❌ ไม่พบสินค้า ID `' + productId + '`', ephemeral: true });
                 }
 
                 if (!Array.isArray(p.stock)) p.stock = [];
-                for (let i = 0; i < count; i++) p.stock.push(`[สิทธิ์การใช้งานสินค้า - ${p.name}]`);
+                for (let i = 0; i < count; i++) p.stock.push('[สิทธิ์การใช้งานสินค้า - ' + p.name + ']');
                 saveProducts(products);
 
                 await sendStockNotification(interaction.client, 'add', p, count);
 
-                return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` เพิ่มจำนวน **${count} ชิ้น** สำเร็จ! (คงเหลือรวม: ${p.stock.length} ชิ้น)`, ephemeral: true });
+                return interaction.reply({ content: '📈 เติมสต็อกสินค้า `' + p.name + '` เพิ่มจำนวน **' + count + ' ชิ้น** สำเร็จ! (คงเหลือรวม: ' + p.stock.length + ' ชิ้น)', ephemeral: true });
             }
 
             if (name === 'stock') {
@@ -627,8 +627,8 @@ client.on("interactionCreate", async (interaction) => {
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
-                        .setTitle(`${index + 1}. 📌 ${p.name}`)
-                        .setDescription(`🆔 **ID สินค้า:** \`${p.id}\`\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n📝 **รายละเอียด:** ${p.desc || 'ไม่มีรายละเอียด'}\n🎗️ **ID ยศ:** ${p.roleId ? `<@&${p.roleId}>` : 'ไม่มียศ'}`)
+                        .setTitle((index + 1) + '. 📌 ' + p.name)
+                        .setDescription('🆔 **ID สินค้า:** `' + p.id + '`\n💰 **ราคา:** ' + p.price + ' บาท\n📦 **สต็อกคงเหลือ:** ' + count + ' ชิ้น\n📝 **รายละเอียด:** ' + (p.desc || 'ไม่มีรายละเอียด') + '\n🎗️ **ID ยศ:** ' + (p.roleId ? '<@&' + p.roleId + '>' : 'ไม่มียศ'))
                         .setColor("#5865F2");
                     if (p.imageUrl && p.imageUrl.startsWith('http')) {
                         embed.setImage(p.imageUrl);
@@ -642,7 +642,7 @@ client.on("interactionCreate", async (interaction) => {
                 const targetUser = interaction.options.getUser('user') || interaction.user;
                 const balances = getBalances();
                 const bal = balances[targetUser.id] || 0;
-                return interaction.reply({ content: `💳 ยอดเงินของ <@${targetUser.id}> คือ **${bal.toFixed(2)} บาท**`, ephemeral: true });
+                return interaction.reply({ content: '💳 ยอดเงินของ <@' + targetUser.id + '> คือ **' + bal.toFixed(2) + ' บาท**', ephemeral: true });
             }
         }
 
@@ -672,10 +672,10 @@ client.on("interactionCreate", async (interaction) => {
                     if (!balances[interaction.user.id]) balances[interaction.user.id] = 0;
                     balances[interaction.user.id] += gw.pointsAmount;
                     saveBalances(balances);
-                    await interaction.reply({ content: `🎉 **ยินดีด้วย!** คุณได้รับ **${gw.pointsAmount} พอยต์** เรียบร้อยแล้ว!\n💳 ยอดเงินคงเหลือของคุณ: **${balances[interaction.user.id]} พอยต์**`, ephemeral: true });
+                    await interaction.reply({ content: '🎉 **ยินดีด้วย!** คุณได้รับ **' + gw.pointsAmount + ' พอยต์** เรียบร้อยแล้ว!\n💳 ยอดเงินคงเหลือของคุณ: **' + balances[interaction.user.id] + ' พอยต์**', ephemeral: true });
                 } else if (gw.type === 'item') {
-                    let msg = `🎉 **ยินดีด้วย!** คุณได้รับของรางวัล **${gw.itemName}** เรียบร้อยแล้ว!`;
-                    if (gw.downloadUrl && gw.downloadUrl.startsWith('http')) msg += `\n\n📥 **ลิงก์ดาวน์โหลดโปรแกรมของคุณ:**\n${gw.downloadUrl}`;
+                    let msg = '🎉 **ยินดีด้วย!** คุณได้รับของรางวัล **' + gw.itemName + '** เรียบร้อยแล้ว!';
+                    if (gw.downloadUrl && gw.downloadUrl.startsWith('http')) msg += '\n\n📥 **ลิงก์ดาวน์โหลดโปรแกรมของคุณ:**\n' + gw.downloadUrl;
                     await interaction.reply({ content: msg, ephemeral: true });
                 }
 
@@ -684,7 +684,7 @@ client.on("interactionCreate", async (interaction) => {
                     const oldEmbed = embedMsg.embeds[0];
                     if (oldEmbed) {
                         const newEmbed = EmbedBuilder.from(oldEmbed);
-                        newEmbed.setFooter({ text: `ผู้รับสิทธิ์แล้ว: ${gw.claimedUsers.length}/${gw.limit} คน` });
+                        newEmbed.setFooter({ text: 'ผู้รับสิทธิ์แล้ว: ' + gw.claimedUsers.length + '/' + gw.limit + ' คน' });
                         await embedMsg.edit({ embeds: [newEmbed] });
                     }
                 } catch (e) {}
@@ -710,21 +710,21 @@ client.on("interactionCreate", async (interaction) => {
             if (interaction.customId === 'btn_admin_delete_product') {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบให้ลบ", ephemeral: true });
-                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_admin_delete_product').setPlaceholder('🗑️ เลือกสินค้าที่ต้องการลบ...').addOptions(products.map(p => ({ label: p.name, description: `ID: ${p.id} | ราคา ${p.price} บาท`, value: p.id })));
+                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_admin_delete_product').setPlaceholder('🗑️ เลือกสินค้าที่ต้องการลบ...').addOptions(products.map(p => ({ label: p.name, description: 'ID: ' + p.id + ' | ราคา ' + p.price + ' บาท', value: p.id })));
                 return interaction.reply({ content: "📌 **กรุณาเลือกสินค้าที่ต้องการลบออกจากระบบ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
             }
 
             if (interaction.customId === 'btn_admin_add_stock') {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบ", ephemeral: true });
-                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_admin_add_stock').setPlaceholder('📈 เลือกสินค้าที่ต้องการเติมสต็อก...').addOptions(products.map(p => ({ label: p.name, description: `คงเหลือปัจจุบัน: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น`, value: p.id })));
+                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_admin_add_stock').setPlaceholder('📈 เลือกสินค้าที่ต้องการเติมสต็อก...').addOptions(products.map(p => ({ label: p.name, description: 'คงเหลือปัจจุบัน: ' + (Array.isArray(p.stock) ? p.stock.length : 0) + ' ชิ้น', value: p.id })));
                 return interaction.reply({ content: "📌 **เลือกสินค้าที่ต้องการเพิ่มสต็อก:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
             }
 
             if (interaction.customId === 'btn_admin_remove_stock') {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบ", ephemeral: true });
-                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_admin_remove_stock').setPlaceholder('📉 เลือกสินค้าที่ต้องการลด/ล้างสต็อก...').addOptions(products.map(p => ({ label: p.name, description: `คงเหลือ: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น`, value: p.id })));
+                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_admin_remove_stock').setPlaceholder('📉 เลือกสินค้าที่ต้องการลด/ล้างสต็อก...').addOptions(products.map(p => ({ label: p.name, description: 'คงเหลือ: ' + (Array.isArray(p.stock) ? p.stock.length : 0) + ' ชิ้น', value: p.id })));
                 return interaction.reply({ content: "📌 **เลือกสินค้าที่ต้องการลดหรือล้างสต็อก:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
             }
 
@@ -735,8 +735,8 @@ client.on("interactionCreate", async (interaction) => {
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
-                        .setTitle(`${index + 1}. 📌 ${p.name}`)
-                        .setDescription(`🆔 **ID สินค้า:** \`${p.id}\`\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n📝 **รายละเอียด:** ${p.desc || 'ไม่มีรายละเอียด'}\n🎗️ **ID ยศ:** ${p.roleId ? `<@&${p.roleId}>` : 'ไม่มียศ'}`)
+                        .setTitle((index + 1) + '. 📌 ' + p.name)
+                        .setDescription('🆔 **ID สินค้า:** `' + p.id + '`\n💰 **ราคา:** ' + p.price + ' บาท\n📦 **สต็อกคงเหลือ:** ' + count + ' ชิ้น\n📝 **รายละเอียด:** ' + (p.desc || 'ไม่มีรายละเอียด') + '\n🎗️ **ID ยศ:** ' + (p.roleId ? '<@&' + p.roleId + '>' : 'ไม่มียศ'))
                         .setColor("#5865F2");
                     if (p.imageUrl && p.imageUrl.startsWith('http')) {
                         embed.setImage(p.imageUrl);
@@ -775,7 +775,7 @@ client.on("interactionCreate", async (interaction) => {
 
             if (interaction.customId === "check_balance") {
                 const balances = getBalances();
-                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("#5865F2").setTitle("💳 ยอดเงินคงเหลือ").setDescription(`💰 คุณมียอดเงินสะสม: **${balances[interaction.user.id] || 0} บาท**`)], ephemeral: true });
+                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("#5865F2").setTitle("💳 ยอดเงินคงเหลือ").setDescription('💰 คุณมียอดเงินสะสม: **' + (balances[interaction.user.id] || 0) + ' บาท**')], ephemeral: true });
             }
 
             if (interaction.customId === "list_products") {
@@ -785,8 +785,8 @@ client.on("interactionCreate", async (interaction) => {
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
-                        .setTitle(`${index + 1}. 🛒 สินค้า: ${p.name}`)
-                        .setDescription(`${p.desc || 'ไม่มีรายละเอียดสินค้า'}\n\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n🎗️ **ยศที่จะได้รับ:** ${p.roleId ? `<@&${p.roleId}>` : 'ไม่มียศ'}`)
+                        .setTitle((index + 1) + '. 🛒 สินค้า: ' + p.name)
+                        .setDescription((p.desc || 'ไม่มีรายละเอียดสินค้า') + '\n\n💰 **ราคา:** ' + p.price + ' บาท\n📦 **สต็อกคงเหลือ:** ' + count + ' ชิ้น\n🎗️ **ยศที่จะได้รับ:** ' + (p.roleId ? '<@&' + p.roleId + '>' : 'ไม่มียศ'))
                         .setColor("#5865F2");
                     
                     if (p.imageUrl && p.imageUrl.startsWith('http')) {
@@ -807,7 +807,7 @@ client.on("interactionCreate", async (interaction) => {
                     .setPlaceholder('🛒 เลือกสินค้าที่คุณต้องการดูรายละเอียด...')
                     .addOptions(products.map(p => ({
                         label: p.name,
-                        description: `ราคา ${p.price} บาท (คงเหลือ: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น)`,
+                        description: 'ราคา ' + p.price + ' บาท (คงเหลือ: ' + (Array.isArray(p.stock) ? p.stock.length : 0) + ' ชิ้น)',
                         value: p.id
                     })));
 
@@ -829,7 +829,7 @@ client.on("interactionCreate", async (interaction) => {
                 const userBalance = balances[interaction.user.id] || 0;
 
                 if (userBalance < product.price) {
-                    return interaction.update({ content: `❌ ยอดเงินของคุณไม่พอ! สินค้าราคา 💰 **${product.price} บาท** (คุณมี: **${userBalance} บาท**)`, embeds: [], components: [] });
+                    return interaction.update({ content: '❌ ยอดเงินของคุณไม่พอ! สินค้าราคา 💰 **' + product.price + ' บาท** (คุณมี: **' + userBalance + ' บาท**)', embeds: [], components: [] });
                 }
 
                 if (!Array.isArray(product.stock) || product.stock.length === 0) {
@@ -849,7 +849,7 @@ client.on("interactionCreate", async (interaction) => {
                     } catch (e) { console.error("Role assignment error:", e); }
                 }
 
-                let replyMsg = `📦 **สินค้า:** ${product.name}\n💰 **ราคา:** ${product.price} บาท\n💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท\n\n🔑 **ข้อมูลสินค้า/สิทธิ์ของคุณ:**\n\`\`\`${itemReceived}\`\`\`;
+                let replyMsg = '📦 **สินค้า:** ' + product.name + '\n💰 **ราคา:** ' + product.price + ' บาท\n💳 **เงินคงเหลือ:** ' + balances[interaction.user.id] + ' บาท\n\n🔑 **ข้อมูลสินค้า/สิทธิ์ของคุณ:**\n```' + itemReceived + '```';
                 if (product.downloadUrl && product.downloadUrl.startsWith('http')) {
                     replyMsg += '\n\n📥 **ลิงก์ดาวน์โหลดสินค้า:**\n' + product.downloadUrl;
                 }
@@ -861,7 +861,7 @@ client.on("interactionCreate", async (interaction) => {
                             embeds: [new EmbedBuilder()
                                 .setColor("Green")
                                 .setTitle("🛒 สั่งซื้อสินค้าสำเร็จ")
-                                .setDescription(`👤 ผู้ซื้อ: <@${interaction.user.id}>\n📦 สินค้า: **${product.name}**\n💰 ราคา: **${product.price} บาท**`)
+                                .setDescription('👤 ผู้ซื้อ: <@' + interaction.user.id + '>\n📦 สินค้า: **' + product.name + '**\n💰 ราคา: **' + product.price + ' บาท**')
                                 .setTimestamp()
                             ]
                         });
@@ -880,8 +880,8 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             if (interaction.customId === "contact_admin") {
-                const targetChannel = config.ticketChannelId ? `<#${config.ticketChannelId}>` : (config.ownerIDs && config.ownerIDs[0] ? `แอดมิน <@${config.ownerIDs[0]}>` : 'แอดมินของร้าน');
-                return interaction.reply({ content: `📞 หากต้องการความช่วยเหลือ สามารถเปิดทิคเก็ตหรือติดต่อได้ที่: ${targetChannel} ครับ`, ephemeral: true });
+                const targetChannel = config.ticketChannelId ? '<#' + config.ticketChannelId + '>' : 'แอดมิน <@' + config.ownerIDs[0] + '>';
+                return interaction.reply({ content: '📞 หากต้องการความช่วยเหลือ สามารถเปิดทิคเก็ตหรือติดต่อได้ที่: ' + targetChannel + ' ครับ', ephemeral: true });
             }
 
             if (interaction.customId.startsWith('upload_slip_')) {
@@ -890,7 +890,7 @@ client.on("interactionCreate", async (interaction) => {
                 if (!topup || topup.status === 'expired' || topup.status === 'cancelled') return interaction.reply({ content: "❌ รายการนี้หมดอายุหรือถูกยกเลิกไปแล้ว", ephemeral: true });
 
                 awaitingSlipUsers.set(interaction.user.id, { topupId: topupId, channelId: interaction.channelId, interaction: interaction, expiresAt: Date.now() + (5 * 60 * 1000) });
-                return await interaction.reply({ content: `📥 **กรุณาส่งรูปภาพสลิปของคุณลงในช่องแชทนี้ได้เลยครับ!**\n*(ระบบกำลังรอรับรูปสลิป... 5 นาที)*`, ephemeral: true });
+                return await interaction.reply({ content: "📥 **กรุณาส่งรูปภาพสลิปของคุณลงในช่องแชทนี้ได้เลยครับ!**\n*(ระบบกำลังรอรับรูปสลิป... 5 นาที)*", ephemeral: true });
             }
 
             if (interaction.customId.startsWith('cancel_topup_')) {
@@ -901,7 +901,7 @@ client.on("interactionCreate", async (interaction) => {
                 });
                 awaitingSlipUsers.delete(interaction.user.id);
                 try { await interaction.message.delete(); } catch(e) {}
-                return await interaction.reply({ content: `🗑️ ยกเลิกรายการ \`${topupId}\` เรียบร้อยแล้ว`, ephemeral: true });
+                return await interaction.reply({ content: '🗑️ ยกเลิกรายการ `' + topupId + '` เรียบร้อยแล้ว', ephemeral: true });
             }
 
             if (interaction.customId === "bank_topup_menu") {
@@ -919,7 +919,7 @@ client.on("interactionCreate", async (interaction) => {
                 let products = getProducts();
                 products = products.filter(p => p.id !== productId);
                 saveProducts(products);
-                return interaction.reply({ content: `🗑️ ลบสินค้าเรียบร้อยแล้ว`, ephemeral: true });
+                return interaction.reply({ content: "🗑️ ลบสินค้าเรียบร้อยแล้ว", ephemeral: true });
             }
 
             if (interaction.customId === 'select_admin_add_stock') {
@@ -953,7 +953,7 @@ client.on("interactionCreate", async (interaction) => {
                 const targetUserId = interaction.values[0];
                 const balances = getBalances();
                 const bal = balances[targetUserId] || 0;
-                return interaction.reply({ content: `🔍 **ข้อมูลผู้ใช้:** <@${targetUserId}>\n💳 **ยอดเงินคงเหลือ:** **${bal.toFixed(2)} บาท**`, ephemeral: true });
+                return interaction.reply({ content: '🔍 **ข้อมูลผู้ใช้:** <@' + targetUserId + '>\n💳 **ยอดเงินคงเหลือ:** **' + bal.toFixed(2) + ' บาท**', ephemeral: true });
             }
 
             if (interaction.customId === 'select_admin_give_item_channel') {
@@ -991,8 +991,8 @@ client.on("interactionCreate", async (interaction) => {
 
                 const stockCount = Array.isArray(product.stock) ? product.stock.length : 0;
                 const embed = new EmbedBuilder()
-                    .setTitle(`🛒 สินค้า: ${product.name}`)
-                    .setDescription(`${product.desc || 'ไม่มีรายละเอียดสินค้า'}\n\n💰 **ราคา:** ${product.price} บาท\n📦 **สต็อกคงเหลือ:** ${stockCount} ชิ้น\n🎗️ **ยศที่จะได้รับ:** ${product.roleId ? `<@&${product.roleId}>` : 'ไม่มียศ'}`)
+                    .setTitle('🛒 สินค้า: ' + product.name)
+                    .setDescription((product.desc || 'ไม่มีรายละเอียดสินค้า') + '\n\n💰 **ราคา:** ' + product.price + ' บาท\n📦 **สต็อกคงเหลือ:** ' + stockCount + ' ชิ้น\n🎗️ **ยศที่จะได้รับ:** ' + (product.roleId ? '<@&' + product.roleId + '>' : 'ไม่มียศ'))
                     .setColor('#FEE75C');
                 
                 if (product.imageUrl && product.imageUrl.startsWith('http')) {
@@ -1000,7 +1000,7 @@ client.on("interactionCreate", async (interaction) => {
                 }
 
                 const actionRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`confirm_buy_${product.id}`).setLabel('✅ ยืนยันการซื้อ').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('confirm_buy_' + product.id).setLabel('✅ ยืนยันการซื้อ').setStyle(ButtonStyle.Success),
                     new ButtonBuilder().setCustomId('cancel_buy').setLabel('❌ ยกเลิก').setStyle(ButtonStyle.Danger)
                 );
 
@@ -1024,10 +1024,10 @@ client.on("interactionCreate", async (interaction) => {
                 const downloadUrl = extra[2]?.trim() || '';
 
                 const products = getProducts();
-                if (products.some(p => p.id === id)) return interaction.reply({ content: `❌ มีสินค้า ID \`${id}\` แล้ว`, ephemeral: true });
+                if (products.some(p => p.id === id)) return interaction.reply({ content: '❌ มีสินค้า ID `' + id + '` แล้ว', ephemeral: true });
 
                 let stockArr = [];
-                for (let i = 0; i < initialStock; i++) stockArr.push(`[สิทธิ์การใช้งานสินค้า - ${name}]`);
+                for (let i = 0; i < initialStock; i++) stockArr.push('[สิทธิ์การใช้งานสินค้า - ' + name + ']');
 
                 const newObj = { id, name, price, desc, imageUrl, roleId, downloadUrl, stock: stockArr };
                 products.push(newObj);
@@ -1035,7 +1035,7 @@ client.on("interactionCreate", async (interaction) => {
 
                 await sendStockNotification(interaction.client, 'add', newObj, initialStock);
 
-                return interaction.reply({ content: `✅ เพิ่มสินค้า \`${name}\` พร้อมสต็อกเริ่มต้น ${initialStock} ชิ้น เรียบร้อยแล้ว!`, ephemeral: true });
+                return interaction.reply({ content: '✅ เพิ่มสินค้า `' + name + '` พร้อมสต็อกเริ่มต้น ' + initialStock + ' ชิ้น เรียบร้อยแล้ว!', ephemeral: true });
             }
 
             if (interaction.customId === 'modal_admin_reduce_stock') {
@@ -1053,7 +1053,7 @@ client.on("interactionCreate", async (interaction) => {
                     p.stock = [];
                     saveProducts(products);
                     tempAdminData.delete(interaction.user.id);
-                    return interaction.reply({ content: `📉 ล้างสต็อกสินค้า \`${p.name}\` ทั้งหมดเรียบร้อยแล้ว!`, ephemeral: true });
+                    return interaction.reply({ content: '📉 ล้างสต็อกสินค้า `' + p.name + '` ทั้งหมดเรียบร้อยแล้ว!', ephemeral: true });
                 } else {
                     const count = parseInt(amtInput);
                     if (isNaN(count) || count <= 0) return interaction.reply({ content: "❌ กรุณาระบุเป็นตัวเลข หรือ 'all'", ephemeral: true });
@@ -1061,7 +1061,7 @@ client.on("interactionCreate", async (interaction) => {
                     p.stock.splice(0, count);
                     saveProducts(products);
                     tempAdminData.delete(interaction.user.id);
-                    return interaction.reply({ content: `📉 ลดสต็อกสินค้า \`${p.name}\` ลง ${count} ชิ้น! (คงเหลือ ${p.stock.length} ชิ้น)`, ephemeral: true });
+                    return interaction.reply({ content: '📉 ลดสต็อกสินค้า `' + p.name + '` ลง ' + count + ' ชิ้น! (คงเหลือ ' + p.stock.length + ' ชิ้น)', ephemeral: true });
                 }
             }
 
@@ -1075,13 +1075,13 @@ client.on("interactionCreate", async (interaction) => {
                 if (!p) return interaction.reply({ content: "❌ ไม่พบสินค้านี้", ephemeral: true });
 
                 if (!Array.isArray(p.stock)) p.stock = [];
-                for (let i = 0; i < count; i++) p.stock.push(`[สิทธิ์การใช้งานสินค้า - ${p.name}]`);
+                for (let i = 0; i < count; i++) p.stock.push('[สิทธิ์การใช้งานสินค้า - ' + p.name + ']');
                 saveProducts(products);
                 tempAdminData.delete(interaction.user.id);
 
                 await sendStockNotification(interaction.client, 'add', p, count);
 
-                return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` จำนวน **${count} ชิ้น** สำเร็จ!`, ephemeral: true });
+                return interaction.reply({ content: '📈 เติมสต็อกสินค้า `' + p.name + '` จำนวน **' + count + ' ชิ้น** สำเร็จ!', ephemeral: true });
             }
 
             if (interaction.customId === 'modal_admin_manage_balance_exec') {
@@ -1100,7 +1100,7 @@ client.on("interactionCreate", async (interaction) => {
                 balances[temp.targetUserId] = cur;
                 saveBalances(balances);
                 tempAdminData.delete(interaction.user.id);
-                return interaction.reply({ content: `💳 อัปเดตยอดเงิน <@${temp.targetUserId}> เป็น **${cur.toFixed(2)} บาท** เรียบร้อย!`, ephemeral: true });
+                return interaction.reply({ content: '💳 อัปเดตยอดเงิน <@' + temp.targetUserId + '> เป็น **' + cur.toFixed(2) + ' บาท** เรียบร้อย!', ephemeral: true });
             }
 
             if (interaction.customId === 'modal_admin_give_item_exec') {
@@ -1115,17 +1115,17 @@ client.on("interactionCreate", async (interaction) => {
                 const downloadUrl = interaction.fields.getTextInputValue('g_download') || '';
                 const parsed = parseGiveawayMoreOptions(interaction.fields.getTextInputValue('g_more').trim());
 
-                const giveawayId = `GW-ITEM-${Date.now()}`;
+                const giveawayId = 'GW-ITEM-' + Date.now();
                 const giveaways = getGiveaways();
                 giveaways[giveawayId] = { id: giveawayId, type: 'item', itemName: title, downloadUrl, limit: parsed.limit, giveRoleId: parsed.giveRoleId, claimedUsers: [] };
                 saveGiveaways(giveaways);
 
-                const embed = new EmbedBuilder().setTitle(`🎁 ${title}`).setDescription(`${nameAndDesc}\n\n👥 **จำนวนสิทธิ์:** จำกัด ${parsed.limit} คน!`).setColor('#FEE75C').setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${parsed.limit} คน` });
+                const embed = new EmbedBuilder().setTitle('🎁 ' + title).setDescription(nameAndDesc + '\n\n👥 **จำนวนสิทธิ์:** จำกัด ' + parsed.limit + ' คน!').setColor('#FEE75C').setFooter({ text: 'ผู้รับสิทธิ์แล้ว: 0/' + parsed.limit + ' คน' });
                 if (parsed.imageUrl) embed.setImage(parsed.imageUrl);
 
-                const claimBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`claim_giveaway_${giveawayId}`).setLabel('🎉 กดรับของรางวัล').setStyle(ButtonStyle.Success));
+                const claimBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('claim_giveaway_' + giveawayId).setLabel('🎉 กดรับของรางวัล').setStyle(ButtonStyle.Success));
                 await targetChannel.send({ content: parsed.roleMention || undefined, embeds: [embed], components: [claimBtn] });
-                return interaction.reply({ content: `✅ สร้างกิจกรรมแจกของในห้อง <#${temp.channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
+                return interaction.reply({ content: '✅ สร้างกิจกรรมแจกของในห้อง <#' + temp.channelId + '> เรียบร้อยแล้ว!', ephemeral: true });
             }
 
             if (interaction.customId === 'modal_admin_give_points_exec') {
@@ -1140,17 +1140,17 @@ client.on("interactionCreate", async (interaction) => {
                 const amount = Number(interaction.fields.getTextInputValue('p_amount').trim());
                 const parsed = parseGiveawayMoreOptions(interaction.fields.getTextInputValue('p_more').trim());
 
-                const giveawayId = `GW-POINTS-${Date.now()}`;
+                const giveawayId = 'GW-POINTS-' + Date.now();
                 const giveaways = getGiveaways();
                 giveaways[giveawayId] = { id: giveawayId, type: 'points', pointsAmount: amount, limit: parsed.limit, claimedUsers: [] };
                 saveGiveaways(giveaways);
 
-                const embed = new EmbedBuilder().setTitle(`💎 ${title}`).setDescription(`${desc}\n\n💰 **แจก:** **${amount} พอยต์/คน**\n👥 **จำกัด:** ${parsed.limit} คน!`).setColor('#5865F2').setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${parsed.limit} คน` });
+                const embed = new EmbedBuilder().setTitle('💎 ' + title).setDescription(desc + '\n\n💰 **แจก:** **' + amount + ' พอยต์/คน**\n👥 **จำกัด:** ' + parsed.limit + ' คน!').setColor('#5865F2').setFooter({ text: 'ผู้รับสิทธิ์แล้ว: 0/' + parsed.limit + ' คน' });
                 if (parsed.imageUrl) embed.setImage(parsed.imageUrl);
 
-                const claimBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`claim_giveaway_${giveawayId}`).setLabel('💎 กดรับพอยต์').setStyle(ButtonStyle.Primary));
+                const claimBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('claim_giveaway_' + giveawayId).setLabel('💎 กดรับพอยต์').setStyle(ButtonStyle.Primary));
                 await targetChannel.send({ content: parsed.roleMention || undefined, embeds: [embed], components: [claimBtn] });
-                return interaction.reply({ content: `✅ สร้างกิจกรรมแจกพอยต์ในห้อง <#${temp.channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
+                return interaction.reply({ content: '✅ สร้างกิจกรรมแจกพอยต์ในห้อง <#' + temp.channelId + '> เรียบร้อยแล้ว!', ephemeral: true });
             }
 
             if (interaction.customId === "truemoney_modal") {
@@ -1164,14 +1164,14 @@ client.on("interactionCreate", async (interaction) => {
                     balances[interaction.user.id] += amount;
                     saveBalances(balances);
 
-                    interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ เติมเงินสำเร็จ").setDescription(`💰 จำนวน: **${amount} บาท**\n💳 ยอดใหม่: **${balances[interaction.user.id]} บาท**`)], ephemeral: true });
+                    interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ เติมเงินสำเร็จ").setDescription('💰 จำนวน: **' + amount + ' บาท**\n💳 ยอดใหม่: **' + balances[interaction.user.id] + ' บาท**')], ephemeral: true });
 
                     if (config.channellog) {
                         const logChannel = interaction.guild.channels.cache.get(config.channellog) || interaction.guild.channels.fetch(config.channellog).catch(() => null);
-                        if (logChannel) logChannel.send({ embeds: [new EmbedBuilder().setColor("Green").setTitle("🧧 เติมเงิน TrueMoney สำเร็จ").setDescription(`👤 ผู้เติม: <@${interaction.user.id}>\n💰 จำนวน: **${amount} บาท**`)] });
+                        if (logChannel) logChannel.send({ embeds: [new EmbedBuilder().setColor("Green").setTitle("🧧 เติมเงิน TrueMoney สำเร็จ").setDescription('👤 ผู้เติม: <@' + interaction.user.id + '>\n💰 จำนวน: **' + amount + ' บาท**')] });
                     }
                 }).catch(err => {
-                    interaction.reply({ content: `❌ ลิงก์ซองไม่ถูกต้อง หรือถูกใช้งานไปแล้ว`, ephemeral: true });
+                    interaction.reply({ content: "❌ ลิงก์ซองไม่ถูกต้อง หรือถูกใช้งานไปแล้ว", ephemeral: true });
                 });
             }
 
@@ -1188,12 +1188,12 @@ client.on("interactionCreate", async (interaction) => {
                 try { qrBuffer = await createPromptPayQrBuffer(amount); } catch (e) {}
                 const expireUnix = Math.floor((Date.now() + (BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000)) / 1000);
 
-                const embed = new EmbedBuilder().setColor("#5865F2").setTitle("🏦 รายละเอียดการโอนเงิน").setDescription(`🧾 **รหัส:** \`${topupId}\`\n💰 **ยอดโอน:** **${amount.toFixed(2)} บาท**\n⏰ **หมดเวลาใน:** <t:${expireUnix}:R>\n\n${getBankTopupDescription()}\n\n📌 **กด "📸 แนบรูปสลิป" ด้านล่างเมื่อโอนสำเร็จ**`);
+                const embed = new EmbedBuilder().setColor("#5865F2").setTitle("🏦 รายละเอียดการโอนเงิน").setDescription('🧾 **รหัส:** `' + topupId + '`\n💰 **ยอดโอน:** **' + amount.toFixed(2) + ' บาท**\n⏰ **หมดเวลาใน:** <t:' + expireUnix + ':R>\n\n' + getBankTopupDescription() + '\n\n📌 **กด "📸 แนบรูปสลิป" ด้านล่างเมื่อโอนสำเร็จ**');
                 if (qrBuffer) embed.setImage('attachment://promptpay.png');
 
                 const actionRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId(`upload_slip_${topupId}`).setLabel('📸 แนบรูปสลิปยืนยัน').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId(`cancel_topup_${topupId}`).setLabel('❌ ยกเลิกรายการ').setStyle(ButtonStyle.Danger)
+                    new ButtonBuilder().setCustomId('upload_slip_' + topupId).setLabel('📸 แนบรูปสลิปยืนยัน').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId('cancel_topup_' + topupId).setLabel('❌ ยกเลิกรายการ').setStyle(ButtonStyle.Danger)
                 );
 
                 return await interaction.reply({ embeds: [embed], components: [actionRow], files: qrBuffer ? [new AttachmentBuilder(qrBuffer, { name: 'promptpay.png' })] : [], ephemeral: true });
