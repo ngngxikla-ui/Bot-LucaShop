@@ -15,5 +15,6 @@
     "bankAccountNumber": "เลขบัญชีธนาคาร",
     "promptpayNumber": "เบอร์พร้อมเพย์",
     "bankQrImageUrl": "",
-    "slipChannelId": "1535740901723218002"
+    "slipChannelId": "1535740901723218002",
+    "easyslipApiKey": ""
 }

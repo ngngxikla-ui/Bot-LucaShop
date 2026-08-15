@@ -10,7 +10,7 @@ app.listen(PORT, () => {
     console.log(`Server is listening on port ${PORT}`);
 });
 
-const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ActivityType } = require('discord.js');
+const { Client, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder, ActivityType, AttachmentBuilder } = require('discord.js');
 
 const client = new Client({ 
     intents: 32767,
@@ -27,6 +27,8 @@ const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v9");
 const fs = require('fs');
 const chalk = require('chalk');
+const generatePayload = require('promptpay-qr');
+const QRCode = require('qrcode');
 
 const botToken = process.env.TOKEN || config.token;
 
@@ -70,6 +72,66 @@ function getBankTopupDescription() {
         `💳 **เลขบัญชี:** ${config.bankAccountNumber || '-'}`,
         `📱 **พร้อมเพย์:** ${config.promptpayNumber || '-'}`
     ].join('\n');
+}
+
+function normalizePromptPayTarget(value) {
+    return String(value || '').replace(/[-\s]/g, '');
+}
+
+async function createPromptPayQrBuffer(amount) {
+    const target = normalizePromptPayTarget(config.promptpayNumber);
+    if (!/^\d{10}$|^\d{13}$|^\d{15}$/.test(target)) return null;
+    const payload = generatePayload(target, { amount });
+    return await QRCode.toBuffer(payload, {
+        type: 'png',
+        width: 520,
+        margin: 2,
+        errorCorrectionLevel: 'M'
+    });
+}
+
+function getEasySlipApiKey() {
+    return process.env.EASYSLIP_API_KEY || config.easyslipApiKey || '';
+}
+
+async function verifyBankSlipByUrl(slipUrl, expectedAmount, topupId) {
+    const apiKey = getEasySlipApiKey();
+    if (!apiKey) throw new Error('ยังไม่ได้ตั้ง EASYSLIP_API_KEY');
+
+    const response = await fetch('https://api.easyslip.com/v2/verify/bank', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            url: slipUrl,
+            remark: topupId,
+            matchAccount: true,
+            matchAmount: Number(expectedAmount),
+            checkDuplicate: true
+        })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) {
+        throw new Error(result?.error?.message || `EasySlip HTTP ${response.status}`);
+    }
+
+    const data = result.data || {};
+    const raw = data.rawSlip || {};
+    const amount = Number(data.amountInSlip ?? raw?.amount?.amount ?? 0);
+    const transRef = String(raw.transRef || '').trim();
+
+    return {
+        verified: true,
+        isDuplicate: data.isDuplicate === true,
+        isAmountMatched: data.isAmountMatched === true || Math.abs(amount - Number(expectedAmount)) < 0.005,
+        matchedAccount: data.matchedAccount || null,
+        amount,
+        transRef,
+        rawSlip: raw
+    };
 }
 
 // ---------------------------------------------------------
@@ -885,24 +947,36 @@ client.on("interactionCreate", async (interaction) => {
 
                 const topup = result.topup;
                 const bankInfo = getBankTopupDescription();
-                const qrLine = config.bankQrImageUrl && !String(config.bankQrImageUrl).startsWith("ใส่")
-                    ? `\n\n🖼️ **QR:** ${config.bankQrImageUrl}` : "";
+                let qrBuffer = null;
+                try {
+                    qrBuffer = await createPromptPayQrBuffer(topup.amount);
+                } catch (qrErr) {
+                    console.error("PromptPay QR error:", qrErr);
+                }
+
+                const embed = new EmbedBuilder()
+                    .setColor("Blue")
+                    .setTitle("🏦 เติมเงินผ่าน PromptPay / ธนาคาร")
+                    .setDescription(
+                        `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
+                        `💰 **จำนวนที่ต้องโอน:** **${topup.amount.toFixed(2)} บาท**\n\n` +
+                        `${bankInfo}\n\n` +
+                        (qrBuffer
+                            ? `📱 **สแกน QR ด้านล่างได้เลย — ระบบใส่ยอด ${topup.amount.toFixed(2)} บาทให้แล้ว**\n\n`
+                            : `⚠️ ยังสร้าง QR อัตโนมัติไม่ได้ กรุณาใช้เลขบัญชี/พร้อมเพย์ด้านบน\n\n`) +
+                        `หลังโอนเสร็จ ให้ส่ง **รูปสลิปตัวจริง** ในห้อง <#${config.slipChannelId || config.ticketChannelId}>\n` +
+                        `ระบบจะตรวจสลิปอัตโนมัติว่า **โอนจริง / จำนวนเงินตรง / เข้าบัญชีร้าน / สลิปซ้ำหรือไม่**\n\n` +
+                        `🔒 **เงินจะเข้ายอดต่อเมื่อผ่านทุกเงื่อนไขเท่านั้น**`
+                    );
+
+                if (qrBuffer) embed.setImage('attachment://promptpay.png');
+                else if (config.bankQrImageUrl && String(config.bankQrImageUrl).trim()) {
+                    embed.setImage(String(config.bankQrImageUrl).trim());
+                }
 
                 return await interaction.reply({
-                    embeds: [new EmbedBuilder()
-                        .setColor("Blue")
-                        .setTitle("🏦 รายการเติมเงินถูกสร้างแล้ว")
-                        .setDescription(
-                            `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
-                            `💰 **จำนวน:** **${topup.amount} บาท**\n\n` +
-                            `${bankInfo}${qrLine}\n\n` +
-                            `**ขั้นตอนสำคัญ:**\n` +
-                            `1. โอนเงินเข้าบัญชีด้านบนเท่านั้น\n` +
-                            `2. หลังโอนแล้ว ให้ส่ง **รูปสลิปตัวจริง** ในห้อง <#${config.slipChannelId || config.ticketChannelId}>\n` +
-                            `3. พิมพ์รหัสรายการ \`${topup.id}\` พร้อมสลิป\n` +
-                            `4. ระบบจะยัง **ไม่เพิ่มเงิน** จนกว่าแอดมินจะตรวจสอบและกดอนุมัติ\n\n` +
-                            `⚠️ รายการนี้ผูกกับ Discord ID ของคุณโดยตรง และใช้สลิปซ้ำ/อนุมัติซ้ำไม่ได้`
-                        )],
+                    embeds: [embed],
+                    files: qrBuffer ? [new AttachmentBuilder(qrBuffer, { name: 'promptpay.png' })] : [],
                     ephemeral: true
                 });
             }
@@ -1022,7 +1096,7 @@ client.on("interactionCreate", async (interaction) => {
 
 
 // ---------------------------------------------------------
-// รับสลิปจากห้องที่กำหนด + ผูกกับรายการของเจ้าของเท่านั้น
+// รับสลิป + ตรวจสอบกับ EasySlip อัตโนมัติ
 // ---------------------------------------------------------
 client.on('messageCreate', async (message) => {
     try {
@@ -1031,161 +1105,184 @@ client.on('messageCreate', async (message) => {
 
         const attachment = message.attachments.find(a => {
             const type = a.contentType || '';
-            return type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(a.name || '');
+            return type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(a.name || '');
         });
         if (!attachment) return;
 
-        const match = message.content.match(/BANK-[A-Z0-9-]+/i);
-        if (!match) {
-            return message.reply("❌ กรุณาระบุ **รหัสรายการเติมเงิน** พร้อมสลิป เช่น `BANK-XXXXXX-123456`");
+        const codeMatch = message.content.match(/BANK-[A-Z0-9-]+/i);
+        const topupsBefore = getTopups();
+
+        // ถ้าไม่พิมพ์รหัส ให้ใช้รายการค้างของผู้ใช้ (ผู้ใช้หนึ่งคนมีได้ทีละรายการ)
+        let topup = codeMatch ? topupsBefore[codeMatch[0].toUpperCase()] : null;
+        if (!topup) {
+            topup = Object.values(topupsBefore).find(t =>
+                t.userId === message.author.id && t.status === 'awaiting_slip'
+            );
         }
 
-        const topupId = match[0].toUpperCase();
+        if (!topup) {
+            return message.reply("❌ ไม่พบรายการเติมเงินที่รอรับสลิปของคุณ กรุณากด **เติมผ่าน QR/ธนาคาร** ก่อน");
+        }
 
-        const result = await queueDbWrite(async () => {
+        if (topup.userId !== message.author.id) {
+            return message.reply("❌ รายการนี้ไม่ใช่ของคุณ ไม่สามารถนำสลิปมาเข้าบัญชีผู้อื่นได้");
+        }
+
+        // เปลี่ยนสถานะเป็น verifying ก่อนเรียก API เพื่อกันการส่งสลิปซ้ำพร้อมกัน
+        const locked = await queueDbWrite(async () => {
             const topups = getTopups();
-            const topup = topups[topupId];
+            const current = topups[topup.id];
+            if (!current || current.userId !== message.author.id) return { error: "ไม่พบรายการ" };
+            if (current.status !== 'awaiting_slip') return { error: "รายการนี้กำลังตรวจสอบหรือดำเนินการไปแล้ว" };
 
-            if (!topup) return { error: "ไม่พบรหัสรายการนี้" };
-            if (topup.userId !== message.author.id) return { error: "รายการนี้เป็นของผู้ใช้อื่น ไม่สามารถผูกสลิปข้ามบัญชีได้" };
-            if (topup.status !== 'awaiting_slip') return { error: "รายการนี้ถูกส่งสลิปหรือดำเนินการไปแล้ว" };
-
-            topup.status = 'pending';
-            topup.slipMessageId = message.id;
-            topup.slipUrl = attachment.url;
-            topup.submittedAt = new Date().toISOString();
+            current.status = 'verifying';
+            current.slipMessageId = message.id;
+            current.slipUrl = attachment.url;
+            current.submittedAt = new Date().toISOString();
             saveTopups(topups);
-            return { topup };
+            return { topup: current };
         });
 
-        if (result.error) return message.reply(`❌ ${result.error}`);
+        if (locked.error) return message.reply(`⏳ ${locked.error}`);
 
-        const topup = result.topup;
-        const logChannel = message.guild?.channels.cache.get(config.channellog);
+        const currentTopup = locked.topup;
 
-        if (logChannel) {
-            const approveRow = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`bank_approve_${topup.id}`)
-                    .setLabel('✅ อนุมัติเติมเงิน')
-                    .setStyle(ButtonStyle.Success),
-                new ButtonBuilder()
-                    .setCustomId(`bank_reject_${topup.id}`)
-                    .setLabel('❌ ปฏิเสธ')
-                    .setStyle(ButtonStyle.Danger)
+        let verification;
+        try {
+            verification = await verifyBankSlipByUrl(
+                currentTopup.slipUrl,
+                currentTopup.amount,
+                currentTopup.id
             );
+        } catch (err) {
+            console.error("EasySlip verification error:", err);
 
-            await logChannel.send({
-                embeds: [new EmbedBuilder()
-                    .setColor("Orange")
-                    .setTitle("🏦 มีรายการเติมเงินธนาคารรอตรวจสอบ")
-                    .setDescription(
-                        `🧾 **รายการ:** \`${topup.id}\`\n` +
-                        `👤 **ผู้เติม:** <@${topup.userId}> (ID: \`${topup.userId}\`)\n` +
-                        `💰 **จำนวน:** **${topup.amount} บาท**\n` +
-                        `🔖 **อ้างอิง:** ${topup.reference || '-'}\n` +
-                        `🖼️ **สลิป:** ${topup.slipUrl}`
-                    )
-                    .setImage(topup.slipUrl)
-                    .setTimestamp()],
-                components: [approveRow]
+            await queueDbWrite(async () => {
+                const topups = getTopups();
+                if (topups[currentTopup.id] && topups[currentTopup.id].status === 'verifying') {
+                    topups[currentTopup.id].status = 'awaiting_slip';
+                    topups[currentTopup.id].lastError = String(err.message || err);
+                    saveTopups(topups);
+                }
             });
+
+            return message.reply(
+                `⚠️ **ยังตรวจสอบสลิปไม่ได้**\n` +
+                `รายการ: \`${currentTopup.id}\`\\n` +
+                `สาเหตุ: ${String(err.message || err)}\\n\\n` +
+                `กรุณาลองส่งสลิปใหม่อีกครั้ง`
+            );
         }
 
-        await message.reply(`✅ รับสลิปแล้ว รายการ \`${topup.id}\` อยู่ระหว่างตรวจสอบ กรุณารอแอดมินอนุมัติ`);
-    } catch (err) {
-        console.error("Slip processing error:", err);
-    }
-});
+        const duplicate = verification.isDuplicate;
+        const amountMatched = verification.isAmountMatched;
+        const accountMatched = !!verification.matchedAccount;
+        const transRef = verification.transRef;
 
-// ---------------------------------------------------------
-// ปุ่มอนุมัติ/ปฏิเสธรายการเติมเงิน
-// ---------------------------------------------------------
-client.on('interactionCreate', async (interaction) => {
-    try {
-        if (!interaction.isButton()) return;
-        if (!interaction.customId.startsWith('bank_approve_') && !interaction.customId.startsWith('bank_reject_')) return;
+        // ตรวจ transRef ซ้ำในฐานข้อมูลเราอีกชั้น
+        const topupsNow = getTopups();
+        const localTransRefUsed = transRef && Object.values(topupsNow).some(t =>
+            t.id !== currentTopup.id &&
+            t.status === 'approved' &&
+            t.transRef === transRef
+        );
 
-        if (!isAdmin(interaction)) {
-            return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-        }
+        const verified = !duplicate && !localTransRefUsed && amountMatched && accountMatched && !!transRef;
 
-        const isApprove = interaction.customId.startsWith('bank_approve_');
-        const topupId = interaction.customId.replace(/^bank_(approve|reject)_/, '');
+        if (!verified) {
+            await queueDbWrite(async () => {
+                const topups = getTopups();
+                const t = topups[currentTopup.id];
+                if (!t) return;
 
-        const result = await queueDbWrite(async () => {
-            const topups = getTopups();
-            const topup = topups[topupId];
-
-            if (!topup) return { error: "ไม่พบรายการเติมเงิน" };
-            if (topup.status !== 'pending') return { error: `รายการนี้มีสถานะ **${topup.status}** และไม่สามารถดำเนินการซ้ำได้` };
-
-            if (!isApprove) {
-                topup.status = 'rejected';
-                topup.approvedBy = interaction.user.id;
-                topup.approvedAt = new Date().toISOString();
+                t.status = 'rejected';
+                t.rejectedAt = new Date().toISOString();
+                t.transRef = transRef || null;
+                t.verification = {
+                    isDuplicate: duplicate,
+                    isAmountMatched: amountMatched,
+                    accountMatched,
+                    amountInSlip: verification.amount,
+                    localTransRefUsed
+                };
                 saveTopups(topups);
-                return { topup, rejected: true };
-            }
+            });
+
+            return message.reply(
+                `❌ **สลิปไม่ผ่านการตรวจสอบ**\n` +
+                `🧾 รายการ: \`${currentTopup.id}\`\\n` +
+                `💰 ยอดที่ต้องโอน: **${currentTopup.amount.toFixed(2)} บาท**\\n` +
+                `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\\n` +
+                `📌 จำนวนเงินตรง: ${amountMatched ? '✅' : '❌'}\\n` +
+                `🏦 บัญชีผู้รับตรงกับบัญชีร้าน: ${accountMatched ? '✅' : '❌'}\\n` +
+                `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}\\n\\n` +
+                `ระบบ **ยังไม่เพิ่มเงิน** ให้บัญชีคุณ`
+            );
+        }
+
+        // อนุมัติอัตโนมัติใน critical section เดียว ป้องกันเงินเข้า 2 ครั้ง
+        const approved = await queueDbWrite(async () => {
+            const topups = getTopups();
+            const t = topups[currentTopup.id];
+
+            if (!t || t.status !== 'verifying') return { error: "รายการนี้ถูกดำเนินการไปแล้ว" };
 
             const balances = getBalances();
-            if (!balances[topup.userId]) balances[topup.userId] = 0;
+            if (!balances[t.userId]) balances[t.userId] = 0;
 
-            // ยอดเงิน + เปลี่ยนสถานะรายการในคิวเดียวกัน
-            balances[topup.userId] += topup.amount;
+            balances[t.userId] += Number(t.amount);
             saveBalances(balances);
 
-            topup.status = 'approved';
-            topup.approvedBy = interaction.user.id;
-            topup.approvedAt = new Date().toISOString();
-            topup.balanceAfter = balances[topup.userId];
+            t.status = 'approved';
+            t.transRef = transRef;
+            t.approvedAt = new Date().toISOString();
+            t.balanceAfter = balances[t.userId];
+            t.verification = {
+                isDuplicate: duplicate,
+                isAmountMatched: amountMatched,
+                accountMatched,
+                amountInSlip: verification.amount,
+                receiver: verification.matchedAccount,
+                transRef
+            };
             saveTopups(topups);
 
-            return { topup, balance: balances[topup.userId] };
+            return { balance: balances[t.userId], topup: t };
         });
 
-        if (result.error) return interaction.reply({ content: `❌ ${result.error}`, ephemeral: true });
+        if (approved.error) return message.reply(`❌ ${approved.error}`);
 
-        if (result.rejected) {
-            return interaction.update({
+        await message.reply(
+            `✅ **เติมเงินสำเร็จ — ระบบตรวจสอบสลิปผ่านแล้ว**\n` +
+            `🧾 รายการ: \`${currentTopup.id}\`\\n` +
+            `💰 ได้รับ: **${currentTopup.amount.toFixed(2)} บาท**\\n` +
+            `🔐 ตรวจสอบบัญชีผู้รับ: ✅\\n` +
+            `🔐 ตรวจสอบจำนวนเงิน: ✅\\n` +
+            `🔐 ตรวจสอบสลิปซ้ำ: ✅\\n` +
+            `🔐 ตรวจสอบเลขอ้างอิงธุรกรรม: ✅\\n` +
+            `💳 ยอดคงเหลือใหม่: **${approved.balance.toFixed(2)} บาท**`
+        );
+
+        const logChannel = message.guild?.channels.cache.get(config.channellog);
+        if (logChannel) {
+            await logChannel.send({
                 embeds: [new EmbedBuilder()
-                    .setColor("Red")
-                    .setTitle("❌ รายการเติมเงินถูกปฏิเสธ")
-                    .setDescription(`รายการ \`${topupId}\` ถูกปฏิเสธโดย <@${interaction.user.id}>`)
-                    .setTimestamp()],
-                components: []
+                    .setColor("Green")
+                    .setTitle("🏦 เติมเงินธนาคารสำเร็จ (Auto Verified)")
+                    .setDescription(
+                        `👤 ผู้เติม: <@${currentTopup.userId}>\\n` +
+                        `🧾 รายการ: \`${currentTopup.id}\`\\n` +
+                        `💰 จำนวน: **${currentTopup.amount.toFixed(2)} บาท**\\n` +
+                        `🔖 TransRef: \`${transRef}\`\\n` +
+                        `🏦 บัญชีผู้รับ: ✅ ตรงกับบัญชีที่ลงทะเบียน EasySlip\\n` +
+                        `♻️ สลิปซ้ำ: ❌\\n` +
+                        `💳 ยอดหลังเติม: **${approved.balance.toFixed(2)} บาท**`
+                    )
+                    .setTimestamp()]
             });
         }
-
-        const topup = result.topup;
-
-        await interaction.update({
-            embeds: [new EmbedBuilder()
-                .setColor("Green")
-                .setTitle("✅ อนุมัติเติมเงินสำเร็จ")
-                .setDescription(
-                    `🧾 รายการ: \`${topup.id}\`\n` +
-                    `👤 ผู้ใช้: <@${topup.userId}>\n` +
-                    `💰 เติม: **${topup.amount} บาท**\n` +
-                    `💳 ยอดใหม่: **${result.balance} บาท**\n` +
-                    `👮 อนุมัติโดย: <@${interaction.user.id}>`
-                )
-                .setTimestamp()],
-            components: []
-        });
-
-        try {
-            const user = await client.users.fetch(topup.userId);
-            await user.send(
-                `✅ **เติมเงินสำเร็จ**\nรายการ: \`${topup.id}\`\n` +
-                `ได้รับ: **${topup.amount} บาท**\nยอดคงเหลือ: **${result.balance} บาท**`
-            );
-        } catch {}
     } catch (err) {
-        console.error("Bank topup approval error:", err);
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: "❌ เกิดข้อผิดพลาดขณะดำเนินการรายการเติมเงิน", ephemeral: true }).catch(() => {});
-        }
+        console.error("Slip processing error:", err);
     }
 });
 
