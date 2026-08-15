@@ -98,6 +98,7 @@ const TOPUP_FILE = './topups.json';
 const DB_FILE = './balances.json';
 const PRODUCTS_FILE = './products.json';
 const GIVEAWAYS_FILE = './giveaways.json';
+const PURCHASES_FILE = './purchases.json';
 
 let dbWriteQueue = Promise.resolve();
 
@@ -140,6 +141,15 @@ function saveGiveaways(data) {
     const tmp = GIVEAWAYS_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
     fs.renameSync(tmp, GIVEAWAYS_FILE);
+}
+function getPurchases() {
+    if (!fs.existsSync(PURCHASES_FILE)) fs.writeFileSync(PURCHASES_FILE, JSON.stringify({}, null, 4));
+    try { return JSON.parse(fs.readFileSync(PURCHASES_FILE, 'utf8')); } catch { return {}; }
+}
+function savePurchases(data) {
+    const tmp = PURCHASES_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 4));
+    fs.renameSync(tmp, PURCHASES_FILE);
 }
 
 function queueDbWrite(task) {
@@ -752,8 +762,8 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             if (interaction.customId === 'btn_admin_check_user') {
-                const userSelect = new UserSelectMenuBuilder().setCustomId('select_admin_check_user').setPlaceholder('🔍 เลือกผู้ใช้ที่ต้องการเช็กข้อมูล...');
-                return interaction.reply({ content: "📌 **กรุณาเลือกผู้ใช้งานที่ต้องการเช็กยอดเงิน:**", components: [new ActionRowBuilder().addComponents(userSelect)], ephemeral: true });
+                const userSelect = new UserSelectMenuBuilder().setCustomId('select_admin_check_user').setPlaceholder('🔍 เลือกผู้ใช้ที่ต้องการเช็กข้อมูลอย่างละเอียด...');
+                return interaction.reply({ content: "📌 **กรุณาเลือกผู้ใช้งานที่ต้องการตรวจสอบข้อมูล:**", components: [new ActionRowBuilder().addComponents(userSelect)], ephemeral: true });
             }
 
             if (interaction.customId === 'btn_admin_give_item') {
@@ -841,6 +851,17 @@ client.on("interactionCreate", async (interaction) => {
 
                 saveProducts(products);
                 saveBalances(balances);
+
+                // บันทึกประวัติการซื้อสินค้าของผู้ใช้
+                const purchases = getPurchases();
+                if (!purchases[interaction.user.id]) purchases[interaction.user.id] = [];
+                purchases[interaction.user.id].push({
+                    productId: product.id,
+                    productName: product.name,
+                    price: product.price,
+                    createdAt: new Date().toISOString()
+                });
+                savePurchases(purchases);
 
                 if (product.roleId) {
                     try {
@@ -951,9 +972,67 @@ client.on("interactionCreate", async (interaction) => {
 
             if (interaction.customId === 'select_admin_check_user') {
                 const targetUserId = interaction.values[0];
+                const member = await interaction.guild.members.fetch(targetUserId).catch(() => null);
                 const balances = getBalances();
                 const bal = balances[targetUserId] || 0;
-                return interaction.reply({ content: '🔍 **ข้อมูลผู้ใช้:** <@' + targetUserId + '>\n💳 **ยอดเงินคงเหลือ:** **' + bal.toFixed(2) + ' บาท**', ephemeral: true });
+
+                // รวบรวมประวัติการเติมเงิน
+                const allTopups = Object.values(getTopups()).filter(t => t.userId === targetUserId && t.status === 'approved');
+                allTopups.sort((a, b) => new Date(b.createdAt || b.approvedAt || 0) - new Date(a.createdAt || a.approvedAt || 0));
+
+                const topupText = allTopups.length > 0 
+                    ? allTopups.slice(0, 5).map(t => {
+                        const dateUnix = Math.floor(new Date(t.createdAt || t.approvedAt || Date.now()).getTime() / 1000);
+                        return `• \`${t.id}\` | **+${t.amount} บาท** (${t.method || 'Bank QR'}) - <t:${dateUnix}:R>`;
+                      }).join('\n')
+                    : '❌ ยังไม่มีประวัติการเติมเงินในระบบ';
+
+                // รวบรวมประวัติการซื้อสินค้า
+                const purchases = getPurchases();
+                const userPurchases = purchases[targetUserId] || [];
+                userPurchases.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+
+                const purchaseText = userPurchases.length > 0
+                    ? userPurchases.slice(0, 5).map(p => {
+                        const dateUnix = Math.floor(new Date(p.createdAt || Date.now()).getTime() / 1000);
+                        return `• **${p.productName}** (${p.price} บาท) - <t:${dateUnix}:R>`;
+                      }).join('\n')
+                    : '❌ ยังไม่มีประวัติการซื้อสินค้า';
+
+                // วันที่เข้าดิส
+                const joinTimestamp = member?.joinedAt ? Math.floor(member.joinedAt.getTime() / 1000) : null;
+                const joinDateStr = joinTimestamp ? `<t:${joinTimestamp}:F> (<t:${joinTimestamp}:R>)` : 'ไม่พบข้อมูลในเซิร์ฟเวอร์นี้';
+
+                const embed = new EmbedBuilder()
+                    .setColor('#5865F2')
+                    .setTitle('🔍 ข้อมูลเชิงลึกของสมาชิก')
+                    .setThumbnail(member?.user?.displayAvatarURL() || interaction.user.displayAvatarURL())
+                    .addFields(
+                        { 
+                            name: '👤 ข้อมูลทั่วไป', 
+                            value: `• **ชื่อผู้ใช้:** ${member ? member.user.tag : `<@${targetUserId}>`}\n• **Discord ID:** \`${targetUserId}\`\n• **วันที่เข้าดิสเซิร์ฟเวอร์:** ${joinDateStr}`, 
+                            inline: false 
+                        },
+                        { 
+                            name: '💳 สถานะการเงิน', 
+                            value: `• **ยอดเงินคงเหลือปัจจุบัน:** **${bal.toFixed(2)} บาท**`, 
+                            inline: false 
+                        },
+                        { 
+                            name: '🧧 ประวัติการเติมเงิน (5 รายการล่าสุด)', 
+                            value: topupText, 
+                            inline: false 
+                        },
+                        { 
+                            name: '🛒 ประวัติการซื้อสินค้า (5 รายการล่าสุด)', 
+                            value: purchaseText, 
+                            inline: false 
+                        }
+                    )
+                    .setTimestamp()
+                    .setFooter({ text: 'LucaShop Admin System', iconURL: interaction.client.user?.displayAvatarURL() });
+
+                return interaction.reply({ embeds: [embed], ephemeral: true });
             }
 
             if (interaction.customId === 'select_admin_give_item_channel') {
@@ -1164,6 +1243,20 @@ client.on("interactionCreate", async (interaction) => {
                     balances[interaction.user.id] += amount;
                     saveBalances(balances);
 
+                    // บันทึกประวัติการเติมเงิน TrueMoney
+                    const topupId = 'TM-' + Date.now().toString(36).toUpperCase();
+                    const topups = getTopups();
+                    topups[topupId] = {
+                        id: topupId,
+                        userId: interaction.user.id,
+                        amount: amount,
+                        status: 'approved',
+                        method: 'TrueMoney',
+                        createdAt: new Date().toISOString(),
+                        approvedAt: new Date().toISOString()
+                    };
+                    saveTopups(topups);
+
                     interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ เติมเงินสำเร็จ").setDescription('💰 จำนวน: **' + amount + ' บาท**\n💳 ยอดใหม่: **' + balances[interaction.user.id] + ' บาท**')], ephemeral: true });
 
                     if (config.channellog) {
@@ -1181,7 +1274,7 @@ client.on("interactionCreate", async (interaction) => {
 
                 const topupId = makeTopupId(interaction.user.id);
                 const topups = getTopups();
-                topups[topupId] = { id: topupId, userId: interaction.user.id, amount, status: 'awaiting_slip', createdAt: new Date().toISOString() };
+                topups[topupId] = { id: topupId, userId: interaction.user.id, amount, status: 'awaiting_slip', method: 'Bank QR', createdAt: new Date().toISOString() };
                 saveTopups(topups);
 
                 let qrBuffer = null;
