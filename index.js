@@ -153,8 +153,7 @@ function getBankTopupDescription() {
         `🏦 **ธนาคาร:** ${config.bankName || '-'}`,
         `💳 **เลขบัญชี:** ${config.bankAccountNumber || '-'}`,
         `📱 **พร้อมเพย์:** ${config.promptpayNumber || '-'}`
-    ].join('
-');
+    ].join('\n');
 }
 
 function normalizePromptPayTarget(value) {
@@ -283,15 +282,10 @@ function createShopMenu() {
     const embed = new EmbedBuilder()
         .setTitle('🛒 LucaShop - เมนูบริการ')
         .setDescription(
-            'ยินดีต้อนรับสู่ร้าน **LucaShop** กรุณาเลือกรายการที่ต้องการทำได้จากปุ่มด้านล่างครับ:
-
-' +
-            '• 🧧 **เติมเงินซอง TrueMoney:** เติมเงินอัตโนมัติผ่านลิงก์ซองอั่งเปา
-' +
-            '• 🏦 **เติมเงิน QR/ธนาคาร:** เติมเงินผ่านสแกน QR / สลิปโอนเงิน
-' +
-            '• 🛒 **เลือกซื้อสินค้า:** เลือกซื้อโปรแกรมและสินค้าของร้าน
-' +
+            'ยินดีต้อนรับสู่ร้าน **LucaShop** กรุณาเลือกรายการที่ต้องการทำได้จากปุ่มด้านล่างครับ:\n\n' +
+            '• 🧧 **เติมเงินซอง TrueMoney:** เติมเงินอัตโนมัติผ่านลิงก์ซองอั่งเปา\n' +
+            '• 🏦 **เติมเงิน QR/ธนาคาร:** เติมเงินผ่านสแกน QR / สลิปโอนเงิน\n' +
+            '• 🛒 **เลือกซื้อสินค้า:** เลือกซื้อโปรแกรมและสินค้าของร้าน\n' +
             '• 💳 **ดูยอดเงิน:** เช็กเงินคงเหลือในบัญชีของคุณ'
         )
         .setColor('Blue');
@@ -314,25 +308,18 @@ function createShopMenu() {
 }
 
 // ---------------------------------------------------------
-// Control Room Menu (เหมือนเดิมตามรูป 100%)
+// Control Room Menu
 // ---------------------------------------------------------
 function createAdminControlMenu() {
     const embed = new EmbedBuilder()
         .setTitle('⚙️ แผงควบคุมระบบแอดมิน (Control Room)')
         .setDescription(
-            'จัดการร้านค้าของคุณได้อย่างสะดวกรวดเร็ว:
-
-' +
-            '• ➕ **เพิ่มสินค้า:** สร้างสินค้าใหม่ ตั้งราคา และยศ
-' +
-            '• 🗑️ **ลบสินค้า:** นำสินค้าไม่ได้ขายออกจากระบบ
-' +
-            '• 📈 **เพิ่ม / 📉 ลดสต็อก:** จัดการจำนวนสินค้าเข้าออกคลัง
-' +
-            '• 📊 **เช็กสต็อกทั้งหมด:** ตรวจสอบสต็อกและยอดขายทั้งหมด
-' +
-            '• 💳 **จัดการเงิน / 🔍 เช็กข้อมูลผู้ใช้:** ตรวจสอบและจัดการลูกค้า
-' +
+            'จัดการร้านค้าของคุณได้อย่างสะดวกรวดเร็ว:\n\n' +
+            '• ➕ **เพิ่มสินค้า:** สร้างสินค้าใหม่ ตั้งราคา และยศ\n' +
+            '• 🗑️ **ลบสินค้า:** นำสินค้าไม่ได้ขายออกจากระบบ\n' +
+            '• 📈 **เพิ่ม / 📉 ลดสต็อก:** จัดการจำนวนสินค้าเข้าออกคลัง\n' +
+            '• 📊 **เช็กสต็อกทั้งหมด:** ตรวจสอบสต็อกและยอดขายทั้งหมด\n' +
+            '• 💳 **จัดการเงิน / 🔍 เช็กข้อมูลผู้ใช้:** ตรวจสอบและจัดการลูกค้า\n' +
             '• 🎉 **กิจกรรมแจก:** แจกโปรแกรมดาวน์โหลด หรือแจกพอยต์สะสม'
         )
         .setColor('#2b2d31');
@@ -374,8 +361,7 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
             embeds: [new EmbedBuilder()
                 .setColor("Red")
                 .setTitle("⚠️ ตรวจสอบสลิปไม่ผ่าน")
-                .setDescription(`**สาเหตุ:** ${err.message || err}
-กรุณาลองกดเติมเงินใหม่อีกครั้งครับ`)
+                .setDescription(`**สาเหตุ:** ${err.message || err}\nกรุณาลองกดเติมเงินใหม่อีกครั้งครับ`)
             ],
             ephemeral: true
         });
@@ -407,16 +393,11 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
                 .setColor("Red")
                 .setTitle("❌ สลิปไม่ผ่านการตรวจสอบ")
                 .setDescription(
-                    `🧾 รายการ: \`${topup.id}\`
-` +
-                    `💰 ยอดที่ต้องโอน: **${topup.amount.toFixed(2)} บาท**
-` +
-                    `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**
-` +
-                    `📌 ยอดเงินตรง: ${amountMatched ? '✅' : '❌'}
-` +
-                    `🏦 บัญชีผู้รับตรง: ${accountMatched ? '✅' : '❌'}
-` +
+                    `🧾 รายการ: \`${topup.id}\`\n` +
+                    `💰 ยอดที่ต้องโอน: **${topup.amount.toFixed(2)} บาท**\n` +
+                    `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\n` +
+                    `📌 ยอดเงินตรง: ${amountMatched ? '✅' : '❌'}\n` +
+                    `🏦 บัญชีผู้รับตรง: ${accountMatched ? '✅' : '❌'}\n` +
                     `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}`
                 )
             ],
@@ -450,10 +431,8 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
             .setColor("Green")
             .setTitle("✅ เติมเงินสำเร็จ!")
             .setDescription(
-                `🧾 **รหัสรายการ:** \`${topup.id}\`
-` +
-                `💰 **ยอดเงินที่ได้รับ:** **${topup.amount.toFixed(2)} บาท**
-` +
+                `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
+                `💰 **ยอดเงินที่ได้รับ:** **${topup.amount.toFixed(2)} บาท**\n` +
                 `💳 **ยอดเงินคงเหลือใหม่:** **${approved.balance.toFixed(2)} บาท**`
             )
         ],
@@ -467,10 +446,7 @@ async function processSlipVerification(user, channel, attachment, topupId, inter
                 embeds: [new EmbedBuilder()
                     .setColor("Green")
                     .setTitle("🏦 เติมเงินสำเร็จ (Auto Verified)")
-                    .setDescription(`👤 ผู้เติม: <@${topup.userId}>
-🧾 รายการ: \`${topup.id}\`
-💰 จำนวน: **${topup.amount.toFixed(2)} บาท**
-💳 ยอดสะสม: **${approved.balance.toFixed(2)} บาท**`)
+                    .setDescription(`👤 ผู้เติม: <@${topup.userId}>\n🧾 รายการ: \`${topup.id}\`\n💰 จำนวน: **${topup.amount.toFixed(2)} บาท**\n💳 ยอดสะสม: **${approved.balance.toFixed(2)} บาท**`)
                     .setTimestamp()
                 ]
             });
@@ -526,10 +502,7 @@ client.on("interactionCreate", async (interaction) => {
                         embeds: [new EmbedBuilder()
                             .setColor("Gold")
                             .setTitle(`🎁 คุณได้รับของขวัญพิเศษ/โปรแกรมฟรี!`)
-                            .setDescription(`🎉 แอดมินได้ส่งสินค้า **${product.name}** ให้แก่คุณ!
-
-🔑 **ข้อมูลคีย์/สคริปต์ของคุณ:**
-\`\`\`${itemKey}\`\`\``)
+                            .setDescription(`🎉 แอดมินได้ส่งสินค้า **${product.name}** ให้แก่คุณ!\n\n🔑 **ข้อมูลคีย์/สคริปต์ของคุณ:**\n\`\`\`${itemKey}\`\`\``)
                         ]
                     });
                     return interaction.reply({ content: `✅ แจกสินค้า \`${product.name}\` ให้แก่ <@${targetUser.id}> ส่งเข้า DM เรียบร้อยแล้ว!`, ephemeral: true });
@@ -593,8 +566,7 @@ client.on("interactionCreate", async (interaction) => {
                 const embed = new EmbedBuilder().setTitle("📊 รายงานสต็อกสินค้าและระบบ").setColor("Blue");
                 products.forEach(p => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
-                    embed.addFields({ name: `📌 ${p.name} (ID: ${p.id})`, value: `💰 ราคา: ${p.price} บาท
-📦 สินค้าคงเหลือ: **${count} ชิ้น**` });
+                    embed.addFields({ name: `📌 ${p.name} (ID: ${p.id})`, value: `💰 ราคา: ${p.price} บาท\n📦 สินค้าคงเหลือ: **${count} ชิ้น**` });
                 });
 
                 return interaction.reply({ embeds: [embed], ephemeral: true });
@@ -639,7 +611,7 @@ client.on("interactionCreate", async (interaction) => {
         // --- 2. Button Handlers ---
         if (interaction.isButton()) {
 
-            // Handling Claims for Giveaways (ผู้ใช้กดรับของ / พอยต์)
+            // Handling Claims for Giveaways
             if (interaction.customId.startsWith('claim_giveaway_')) {
                 const giveawayId = interaction.customId.replace('claim_giveaway_', '');
                 const giveaways = getGiveaways();
@@ -659,11 +631,9 @@ client.on("interactionCreate", async (interaction) => {
                     return interaction.reply({ content: '❌ เสียใจด้วยครับ สิทธิ์กิจกรรมนี้ถูกรับเต็มจำนวนแล้ว!', ephemeral: true });
                 }
 
-                // สิทธิ์ยังไม่เต็ม ดำเนินการแจก
                 gw.claimedUsers.push(interaction.user.id);
                 saveGiveaways(giveaways);
 
-                // มอบยศ (ถ้าเป็นประเภทแจกของ และมีการกำหนด ID ยศไว้)
                 if (gw.type === 'item' && gw.giveRoleId) {
                     try {
                         const role = interaction.guild.roles.cache.get(gw.giveRoleId);
@@ -673,7 +643,6 @@ client.on("interactionCreate", async (interaction) => {
                     }
                 }
 
-                // เติมพอยต์ (ถ้าเป็นประเภทแจกพอยต์)
                 if (gw.type === 'points' && gw.pointsAmount > 0) {
                     const balances = getBalances();
                     if (!balances[interaction.user.id]) balances[interaction.user.id] = 0;
@@ -681,28 +650,22 @@ client.on("interactionCreate", async (interaction) => {
                     saveBalances(balances);
 
                     await interaction.reply({
-                        content: `🎉 **ยินดีด้วย!** คุณได้รับ **${gw.pointsAmount} พอยต์** เรียบร้อยแล้ว!
-💳 ยอดเงินคงเหลือของคุณ: **${balances[interaction.user.id]} พอยต์**`,
+                        content: `🎉 **ยินดีด้วย!** คุณได้รับ **${gw.pointsAmount} พอยต์** เรียบร้อยแล้ว!\n💳 ยอดเงินคงเหลือของคุณ: **${balances[interaction.user.id]} พอยต์**`,
                         ephemeral: true
                     });
                 } else if (gw.type === 'item') {
                     let msg = `🎉 **ยินดีด้วย!** คุณได้รับของรางวัล **${gw.itemName}** เรียบร้อยแล้ว!`;
                     if (gw.downloadUrl) {
-                        msg += `
-
-📥 **ลิงก์ดาวน์โหลดโปรแกรม:**
-${gw.downloadUrl}`;
+                        msg += `\n\n📥 **ลิงก์ดาวน์โหลดโปรแกรม:**\n${gw.downloadUrl}`;
                     }
                     await interaction.reply({ content: msg, ephemeral: true });
                 }
 
-                // อัปเดต Embed ข้อความกิจกรรมเพื่อโชว์จำนวนคนรับ
                 try {
                     const embedMsg = interaction.message;
                     const oldEmbed = embedMsg.embeds[0];
                     if (oldEmbed) {
                         const newEmbed = EmbedBuilder.from(oldEmbed);
-                        // อัปเดตข้อมูล footer หรือ field คนรับ
                         newEmbed.setFooter({ text: `ผู้รับสิทธิ์แล้ว: ${gw.claimedUsers.length}/${gw.limit} คน` });
                         await embedMsg.edit({ embeds: [newEmbed] });
                     }
@@ -785,7 +748,6 @@ ${gw.downloadUrl}`;
                 return await interaction.showModal(modal);
             }
 
-            // ปุ่มแอดมิน: แจกของ/โปรแกรม
             if (interaction.customId === 'btn_admin_give_item') {
                 const modal = new ModalBuilder().setCustomId('modal_admin_give_item').setTitle('🎁 กิจกรรมแจกโปรแกรม / ของ');
                 modal.addComponents(
@@ -798,7 +760,6 @@ ${gw.downloadUrl}`;
                 return await interaction.showModal(modal);
             }
 
-            // ปุ่มแอดมิน: แจกพอยต์
             if (interaction.customId === 'btn_admin_give_points') {
                 const modal = new ModalBuilder().setCustomId('modal_admin_give_points').setTitle('💎 กิจกรรมแจกพอยต์');
                 modal.addComponents(
@@ -828,8 +789,7 @@ ${gw.downloadUrl}`;
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ขณะนี้ยังไม่มีสินค้าในร้านครับ", ephemeral: true });
 
-                let desc = products.map((p, i) => `${i + 1}. **${p.name}** (ID: \`${p.id}\`) - ราคา **${p.price} บาท** (คงเหลือ: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น)`).join('
-');
+                let desc = products.map((p, i) => `${i + 1}. **${p.name}** (ID: \`${p.id}\`) - ราคา **${p.price} บาท** (คงเหลือ: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น)`).join('\n');
                 return interaction.reply({ embeds: [new EmbedBuilder().setColor("Blue").setTitle("📦 รายการสินค้าทั้งหมด").setDescription(desc)], ephemeral: true });
             }
 
@@ -873,8 +833,7 @@ ${gw.downloadUrl}`;
                 });
 
                 return await interaction.reply({
-                    content: `📥 **กรุณาส่ง/แนบรูปภาพสลิปของคุณลงในช่องแชทนี้ได้เลยครับ!**
-*(ระบบกำลังรอรับรูปสลิปจากคุณเป็นเวลา 5 นาที...)*`,
+                    content: `📥 **กรุณาส่ง/แนบรูปภาพสลิปของคุณลงในช่องแชทนี้ได้เลยครับ!**\n*(ระบบกำลังรอรับรูปสลิปจากคุณเป็นเวลา 5 นาที...)*`,
                     ephemeral: true
                 });
             }
@@ -921,8 +880,7 @@ ${gw.downloadUrl}`;
                         embeds: [new EmbedBuilder()
                             .setColor("Orange")
                             .setTitle("⏳ มีรายการเติมเงินที่ยังทำไม่เสร็จ")
-                            .setDescription(`🧾 รหัสรายการ: \`${existing.id}\`
-💰 ยอดที่ต้องโอน: **${existing.amount.toFixed(2)} บาท**`)
+                            .setDescription(`🧾 รหัสรายการ: \`${existing.id}\`\n💰 ยอดที่ต้องโอน: **${existing.amount.toFixed(2)} บาท**`)
                         ],
                         components: [actionRow],
                         ephemeral: true
@@ -966,12 +924,7 @@ ${gw.downloadUrl}`;
                     embeds: [new EmbedBuilder()
                         .setColor("Green")
                         .setTitle("🎉 สั่งซื้อสินค้าสำเร็จ!")
-                        .setDescription(`📦 **สินค้า:** ${product.name}
-💰 **ราคา:** ${product.price} บาท
-💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท
-
-🔑 **ข้อมูลสินค้า/คีย์ของคุณ:**
-\`\`\`${itemReceived}\`\`\``)
+                        .setDescription(`📦 **สินค้า:** ${product.name}\n💰 **ราคา:** ${product.price} บาท\n💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท\n\n🔑 **ข้อมูลสินค้า/คีย์ของคุณ:**\n\`\`\`${itemReceived}\`\`\``)
                     ],
                     ephemeral: true
                 });
@@ -981,7 +934,6 @@ ${gw.downloadUrl}`;
         // --- 4. Modal Submits ---
         if (interaction.isModalSubmit()) {
 
-            // Admin Modal Submit Handlers
             if (interaction.customId === 'modal_admin_add_product') {
                 const id = interaction.fields.getTextInputValue('p_id').trim();
                 const name = interaction.fields.getTextInputValue('p_name').trim();
@@ -1055,11 +1007,9 @@ ${gw.downloadUrl}`;
                 const userId = interaction.fields.getTextInputValue('u_id').trim();
                 const balances = getBalances();
                 const bal = balances[userId] || 0;
-                return interaction.reply({ content: `🔍 **ข้อมูลผู้ใช้ ID:** \`${userId}\`
-💳 ยอดเงินคงเหลือ: **${bal.toFixed(2)} บาท**`, ephemeral: true });
+                return interaction.reply({ content: `🔍 **ข้อมูลผู้ใช้ ID:** \`${userId}\`\n💳 ยอดเงินคงเหลือ: **${bal.toFixed(2)} บาท**`, ephemeral: true });
             }
 
-            // Modal แจกโปรแกรม / ของ
             if (interaction.customId === 'modal_admin_give_item') {
                 const channelId = interaction.fields.getTextInputValue('g_channel').trim();
                 const title = interaction.fields.getTextInputValue('g_title').trim();
@@ -1070,7 +1020,6 @@ ${gw.downloadUrl}`;
                 const targetChannel = interaction.guild.channels.cache.get(channelId);
                 if (!targetChannel) return interaction.reply({ content: `❌ ไม่พบห้อง ID \`${channelId}\` ในเซิร์ฟเวอร์นี้`, ephemeral: true });
 
-                // แปลง options: ลิมิตคน|IDยศที่จะแจก|ยศแท็ก|URLรูป
                 const parts = moreOpts.split('|').map(s => s.trim());
                 const limit = parseInt(parts[0]) || 1;
                 const giveRoleId = parts[1] || '';
@@ -1093,9 +1042,7 @@ ${gw.downloadUrl}`;
 
                 const embed = new EmbedBuilder()
                     .setTitle(`🎁 กิจกรรมแจกโปรแกรม/ของ: ${title}`)
-                    .setDescription(`${nameAndDesc}
-
-👥 **จำนวนสิทธิ์:** จำกัด ${limit} คนเท่านั้น!`)
+                    .setDescription(`${nameAndDesc}\n\n👥 **จำนวนสิทธิ์:** จำกัด ${limit} คนเท่านั้น!`)
                     .setColor('Gold')
                     .setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${limit} คน` })
                     .setTimestamp();
@@ -1122,7 +1069,6 @@ ${gw.downloadUrl}`;
                 return interaction.reply({ content: `✅ สร้างกิจกรรมแจกของในห้อง <#${channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
             }
 
-            // Modal แจกพอยต์
             if (interaction.customId === 'modal_admin_give_points') {
                 const channelId = interaction.fields.getTextInputValue('p_channel').trim();
                 const title = interaction.fields.getTextInputValue('p_title').trim();
@@ -1133,7 +1079,6 @@ ${gw.downloadUrl}`;
                 const targetChannel = interaction.guild.channels.cache.get(channelId);
                 if (!targetChannel) return interaction.reply({ content: `❌ ไม่พบห้อง ID \`${channelId}\` ในเซิร์ฟเวอร์นี้`, ephemeral: true });
 
-                // แปลง options: ลิมิตคน|ยศแท็ก|URLรูปภาพ
                 const parts = moreOpts.split('|').map(s => s.trim());
                 const limit = parseInt(parts[0]) || 1;
                 const roleMention = parts[1] || '';
@@ -1153,10 +1098,7 @@ ${gw.downloadUrl}`;
 
                 const embed = new EmbedBuilder()
                     .setTitle(`💎 กิจกรรมแจกพอยต์: ${title}`)
-                    .setDescription(`${desc}
-
-💰 **แจกพอยต์:** **${amount} พอยต์/คน**
-👥 **จำนวนสิทธิ์:** จำกัด ${limit} คนเท่านั้น!`)
+                    .setDescription(`${desc}\n\n💰 **แจกพอยต์:** **${amount} พอยต์/คน**\n👥 **จำนวนสิทธิ์:** จำกัด ${limit} คนเท่านั้น!`)
                     .setColor('Blue')
                     .setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${limit} คน` })
                     .setTimestamp();
@@ -1177,7 +1119,6 @@ ${gw.downloadUrl}`;
                 return interaction.reply({ content: `✅ สร้างกิจกรรมแจกพอยต์ในห้อง <#${channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
             }
 
-            // Client Modals
             if (interaction.customId === "truemoney_modal") {
                 const voucherUrl = interaction.fields.getTextInputValue('voucher_url');
                 const phone = config.phone;
@@ -1191,13 +1132,11 @@ ${gw.downloadUrl}`;
                     balances[interaction.user.id] += amount;
                     saveBalances(balances);
 
-                    interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ เติมเงินสำเร็จ (TrueMoney)").setDescription(`💰 จำนวน: **${amount} บาท**
-💳 ยอดคงเหลือใหม่: **${balances[interaction.user.id]} บาท**`)], ephemeral: true });
+                    interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ เติมเงินสำเร็จ (TrueMoney)").setDescription(`💰 จำนวน: **${amount} บาท**\n💳 ยอดคงเหลือใหม่: **${balances[interaction.user.id]} บาท**`)], ephemeral: true });
 
                     if (config.channellog) {
                         const logChannel = interaction.guild.channels.cache.get(config.channellog);
-                        if (logChannel) logChannel.send({ embeds: [new EmbedBuilder().setColor("Green").setTitle("🧧 เติมเงินสำเร็จ (TrueMoney)").setDescription(`👤 ผู้เติม: <@${interaction.user.id}>
-💰 จำนวน: **${amount} บาท**`)] });
+                        if (logChannel) logChannel.send({ embeds: [new EmbedBuilder().setColor("Green").setTitle("🧧 เติมเงินสำเร็จ (TrueMoney)").setDescription(`👤 ผู้เติม: <@${interaction.user.id}>\n💰 จำนวน: **${amount} บาท**`)] });
                     }
                 }).catch(err => {
                     interaction.reply({ content: `❌ เกิดข้อผิดพลาด: ลิงก์ซองไม่ถูกต้อง หรือถูกใช้งานไปแล้ว`, ephemeral: true });
@@ -1229,22 +1168,13 @@ ${gw.downloadUrl}`;
                     .setColor("Blue")
                     .setTitle("🏦 รายละเอียดการโอนเงิน")
                     .setDescription(
-                        `🧾 **รหัสรายการ:** \`${topupId}\`
-` +
-                        `💰 **ยอดที่ต้องโอน:** **${amount.toFixed(2)} บาท**
-` +
-                        `⏰ **หมดอายุใน:** <t:${expireUnix}:R>
-
-` +
-                        `${getBankTopupDescription()}
-
-` +
-                        `📌 **ขั้นตอนการยืนยัน:**
-` +
-                        `1. โอนเงินตามยอดด้านบน
-` +
-                        `2. โอนเสร็จแล้ว ให้กดปุ่ม **"📸 แนบรูปสลิปยืนยัน"** ด้านล่าง
-` +
+                        `🧾 **รหัสรายการ:** \`${topupId}\`\n` +
+                        `💰 **ยอดที่ต้องโอน:** **${amount.toFixed(2)} บาท**\n` +
+                        `⏰ **หมดอายุใน:** <t:${expireUnix}:R>\n\n` +
+                        `${getBankTopupDescription()}\n\n` +
+                        `📌 **ขั้นตอนการยืนยัน:**\n` +
+                        `1. โอนเงินตามยอดด้านบน\n` +
+                        `2. โอนเสร็จแล้ว ให้กดปุ่ม **"📸 แนบรูปสลิปยืนยัน"** ด้านล่าง\n` +
                         `3. ส่งรูปสลิปเข้าแชทได้ทันที ระบบจะตรวจสลิปและเข้ายอดเงินให้อัตโนมัติ!`
                     );
 
