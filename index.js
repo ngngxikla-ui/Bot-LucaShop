@@ -26,7 +26,6 @@ const {
     AttachmentBuilder 
 } = require('discord.js');
 
-// ⚙️ กำหนด Intents ให้บอทอ่านข้อความและรูปภาพในเซิร์ฟเวอร์ได้ถูกต้อง
 const client = new Client({ 
     intents: [
         GatewayIntentBits.Guilds,
@@ -44,13 +43,11 @@ const fs = require('fs');
 const chalk = require('chalk');
 const QRCode = require('qrcode');
 
-// ⏱️ ตั้งค่าเวลาหมดอายุของการเติมเงิน (นาที)
 const BANK_TOPUP_TIMEOUT_MINUTES = 5; 
 
-// ตัวแปรเก็บสถานะผู้ใช้ที่กำลังรอส่งสลิปในแชท
+// ตัวแปรเก็บสถานะผู้ใช้ และเก็บข้อมูล Message ID เพื่อสั่งลบ
 const awaitingSlipUsers = new Map();
 
-// ฟังก์ชันสร้าง PromptPay Payload
 function generatePayload(target, options = {}) {
     const amount = options.amount;
     const sanitized = String(target || '').replace(/[^0-9]/g, '');
@@ -93,9 +90,6 @@ function generatePayload(target, options = {}) {
 
 const botToken = process.env.TOKEN || config.token;
 
-// ---------------------------------------------------------
-// ระบบฐานข้อมูล Topup
-// ---------------------------------------------------------
 const TOPUP_FILE = './topups.json';
 let dbWriteQueue = Promise.resolve();
 
@@ -194,9 +188,6 @@ async function verifyBankSlipByUrl(slipUrl, expectedAmount, topupId) {
     };
 }
 
-// ---------------------------------------------------------
-// ระบบฐานข้อมูล JSON Files
-// ---------------------------------------------------------
 const DB_FILE = './balances.json';
 function getBalances() {
     if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({}));
@@ -204,19 +195,6 @@ function getBalances() {
 }
 function saveBalances(data) {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 4));
-}
-
-const PRODUCTS_FILE = './products.json';
-function getProducts() {
-    if (!fs.existsSync(PRODUCTS_FILE)) {
-        const initial = (config && Array.isArray(config.products)) ? config.products : [];
-        fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(initial, null, 4));
-        return initial;
-    }
-    try { return JSON.parse(fs.readFileSync(PRODUCTS_FILE, 'utf8')); } catch { return []; }
-}
-function saveProducts(data) {
-    fs.writeFileSync(PRODUCTS_FILE, JSON.stringify(data, null, 4));
 }
 
 function isAdmin(interaction) {
@@ -230,12 +208,8 @@ function isAdmin(interaction) {
     return false;
 }
 
-// ---------------------------------------------------------
-// Register Slash Commands
-// ---------------------------------------------------------
 let commandsMap = new Map();
 commandsMap.set("setup", { name: "setup", description: "ติดตั้งหน้าต่างเมนูร้านค้าสำหรับลูกค้า (Admin Only)" });
-commandsMap.set("admin_room", { name: "admin_room", description: "เปิดแผงควบคุมร้านค้าสำหรับแอดมิน (Control Room)" });
 
 const rest = new REST({ version: "9" }).setToken(botToken);
 
@@ -246,7 +220,6 @@ client.once("ready", () => {
             await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
             client.user.setActivity('Roblox', { type: ActivityType.Playing });
             console.log(chalk.green(`✅ เข้าสู่ระบบสำเร็จในชื่อ : ${client.user.tag}`));
-            console.log(chalk.blue(`✅ อัปเดต Slash Commands ทั้งหมดเรียบร้อยแล้ว!`));
         } catch (err) {
             console.error(err);
         }
@@ -266,17 +239,13 @@ function createShopMenu() {
         new ButtonBuilder().setCustomId('check_balance').setLabel('💳 ดูยอดเงินในบัญชี').setStyle(ButtonStyle.Primary)
     );
 
-    const row1b = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('buy_menu').setLabel('🛒 เลือกซื้อสินค้า').setStyle(ButtonStyle.Secondary)
-    );
-
-    return { embeds: [embed], components: [row1, row1b] };
+    return { embeds: [embed], components: [row1] };
 }
 
 // ---------------------------------------------------------
-// ฟังก์ชันประมวลผลการตรวจสลิป
+// ฟังก์ชันประมวลผลการตรวจสลิป (ส่งเฉพาะลูกค้าเห็น + ลบ QR เก่า)
 // ---------------------------------------------------------
-async function processSlipVerification(user, channel, attachment, topupId) {
+async function processSlipVerification(user, channel, attachment, topupId, interaction) {
     const topup = getTopups()[topupId];
     if (!topup) return;
 
@@ -285,12 +254,13 @@ async function processSlipVerification(user, channel, attachment, topupId) {
         verification = await verifyBankSlipByUrl(attachment.url, topup.amount, topup.id);
     } catch (err) {
         console.error("EasySlip verification error:", err);
-        return await channel.send({
-            content: `<@${user.id}>`,
+        return await interaction.followUp({
             embeds: [new EmbedBuilder()
                 .setColor("Red")
                 .setTitle("⚠️ ตรวจสอบสลิปไม่ผ่าน")
-                .setDescription(`**สาเหตุ:** ${err.message || err}\nกรุณาลองกดเติมเงินใหม่อีกครั้งครับ`)]
+                .setDescription(`**สาเหตุ:** ${err.message || err}\nกรุณาลองกดเติมเงินใหม่อีกครั้งครับ`)
+            ],
+            ephemeral: true
         });
     }
 
@@ -315,8 +285,7 @@ async function processSlipVerification(user, channel, attachment, topupId) {
             }
         });
 
-        return await channel.send({
-            content: `<@${user.id}>`,
+        return await interaction.followUp({
             embeds: [new EmbedBuilder()
                 .setColor("Red")
                 .setTitle("❌ สลิปไม่ผ่านการตรวจสอบ")
@@ -327,7 +296,9 @@ async function processSlipVerification(user, channel, attachment, topupId) {
                     `📌 ยอดเงินตรง: ${amountMatched ? '✅' : '❌'}\n` +
                     `🏦 บัญชีผู้รับตรง: ${accountMatched ? '✅' : '❌'}\n` +
                     `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}`
-                )]
+                )
+            ],
+            ephemeral: true
         });
     }
 
@@ -352,8 +323,8 @@ async function processSlipVerification(user, channel, attachment, topupId) {
 
     if (!approved) return;
 
-    await channel.send({
-        content: `<@${user.id}>`,
+    // แจ้งเตือนลูกค้าผ่าน Ephemeral (คนอื่นไม่เห็น)
+    await interaction.followUp({
         embeds: [new EmbedBuilder()
             .setColor("Green")
             .setTitle("✅ เติมเงินสำเร็จ!")
@@ -361,10 +332,12 @@ async function processSlipVerification(user, channel, attachment, topupId) {
                 `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
                 `💰 **ยอดเงินที่ได้รับ:** **${topup.amount.toFixed(2)} บาท**\n` +
                 `💳 **ยอดเงินคงเหลือใหม่:** **${approved.balance.toFixed(2)} บาท**`
-            )]
+            )
+        ],
+        ephemeral: true
     });
 
-    // ส่ง Log สำหรับแอดมิน
+    // ส่ง Log ไปให้แอดมินใน channellog
     if (config.channellog) {
         const logChannel = channel.guild?.channels.cache.get(config.channellog);
         if (logChannel) {
@@ -373,7 +346,8 @@ async function processSlipVerification(user, channel, attachment, topupId) {
                     .setColor("Green")
                     .setTitle("🏦 เติมเงินสำเร็จ (Auto Verified)")
                     .setDescription(`👤 ผู้เติม: <@${topup.userId}>\n🧾 รายการ: \`${topup.id}\`\n💰 จำนวน: **${topup.amount.toFixed(2)} บาท**\n💳 ยอดสะสม: **${approved.balance.toFixed(2)} บาท**`)
-                    .setTimestamp()]
+                    .setTimestamp()
+                ]
             });
         }
     }
@@ -401,7 +375,8 @@ client.on("interactionCreate", async (interaction) => {
                 awaitingSlipUsers.set(interaction.user.id, {
                     topupId: topupId,
                     channelId: interaction.channelId,
-                    expiresAt: Date.now() + (5 * 60 * 1000) // เพิ่มเวลารอสลิปเป็น 5 นาที
+                    interaction: interaction,
+                    expiresAt: Date.now() + (5 * 60 * 1000)
                 });
 
                 return await interaction.reply({
@@ -420,6 +395,9 @@ client.on("interactionCreate", async (interaction) => {
                     }
                 });
                 awaitingSlipUsers.delete(interaction.user.id);
+
+                // ลบ QR Code เดิมทิ้งทันทีเมื่อกดซ่อน/ยกเลิก
+                try { await interaction.message.delete(); } catch(e) {}
                 return await interaction.reply({ content: `🗑️ ยกเลิกรายการ \`${topupId}\` เรียบร้อยแล้ว`, ephemeral: true });
             }
 
@@ -527,13 +505,12 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // ---------------------------------------------------------
-// ดักจับรูปสลิปที่ผู้ใช้ส่งลงในช่องแชทแบบอัตโนมัติ
+// ดักจับสลิป + ลบข้อความ QR Code + ส่งผลแบบส่วนตัว (Ephemeral)
 // ---------------------------------------------------------
 client.on('messageCreate', async (message) => {
     try {
         if (message.author.bot) return;
 
-        // เช็คว่าผู้ใช้นี้กำลังรอยืนยันสลิปอยู่หรือไม่
         const pending = awaitingSlipUsers.get(message.author.id);
         if (!pending) return;
 
@@ -549,18 +526,19 @@ client.on('messageCreate', async (message) => {
 
         if (!attachment) return;
 
-        // ลบข้อความรูปสลิปของผู้ใช้ทันทีเพื่อความสะอาดของช่องแชท
+        // ลบรูปสลิปที่ลูกค้าส่งลงช่องแชททันที
         message.delete().catch(() => {});
 
-        // ลบสถานะรอ
+        // ลบ QR Code เดิมของรายการนี้ทิ้ง (ถ้ามี)
+        if (pending.interaction && pending.interaction.message) {
+            pending.interaction.message.delete().catch(() => {});
+        }
+
         awaitingSlipUsers.delete(message.author.id);
 
-        const loadingMsg = await message.channel.send(`⏳ กำลังตรวจสอบรูปสลิปของคุณสำหรับรายการ \`${pending.topupId}\`...`);
-        
-        // ประมวลผลตรวจสอบสลิป
-        await processSlipVerification(message.author, message.channel, attachment, pending.topupId);
-        
-        loadingMsg.delete().catch(() => {});
+        // ตรวจสอบสลิปและส่งผลเฉพาะลูกค้าเห็น
+        await processSlipVerification(message.author, message.channel, attachment, pending.topupId, pending.interaction);
+
     } catch (err) {
         console.error("Auto slip handler error:", err);
     }
