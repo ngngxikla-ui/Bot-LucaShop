@@ -1,15 +1,17 @@
 {
-  "name": "discord-shop-bot",
+  "name": "bot-lucashop",
   "version": "1.0.0",
-  "description": "Discord Shop Bot with TrueMoney Topup",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@fortune-inc/tw-voucher": "^1.0.2",
+    "@discordjs/rest": "^1.0.1",
+    "@fortune-inc/tw-voucher": "^1.0.4",
     "chalk": "^4.1.2",
-    "discord.js": "^14.14.0",
-    "express": "^4.19.2"
+    "discord-api-types": "^0.37.0",
+    "discord.js": "^14.14.1",
+    "express": "^4.18.2",
+    "qrcode": "^1.5.3"
   }
 }
