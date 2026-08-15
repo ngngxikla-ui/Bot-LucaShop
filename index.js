@@ -22,6 +22,9 @@ const {
     TextInputBuilder, 
     TextInputStyle, 
     StringSelectMenuBuilder, 
+    UserSelectMenuBuilder,
+    ChannelSelectMenuBuilder,
+    ChannelType,
     ActivityType, 
     AttachmentBuilder,
     SlashCommandBuilder
@@ -31,7 +34,8 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildMembers
     ],
     partials: [Partials.Channel, Partials.Message]
 });
@@ -46,6 +50,7 @@ const QRCode = require('qrcode');
 
 const BANK_TOPUP_TIMEOUT_MINUTES = 5; 
 const awaitingSlipUsers = new Map();
+const tempAdminData = new Map(); // เก็บสถานะชั่วคราวของการเลือกห้อง/ผู้ใช้
 
 function generatePayload(target, options = {}) {
     const amount = options.amount;
@@ -228,39 +233,37 @@ function isAdmin(interaction) {
 }
 
 // ---------------------------------------------------------
+// Helper: Smart Parse Extra Options (รูปภาพ / ยศ / ลิมิต)
+// ---------------------------------------------------------
+function parseGiveawayMoreOptions(str) {
+    const parts = str.split('|').map(s => s.trim());
+    let limit = 1;
+    let giveRoleId = '';
+    let roleMention = '';
+    let imageUrl = '';
+
+    parts.forEach((p, index) => {
+        if (index === 0 && /^\d+$/.test(p)) {
+            limit = parseInt(p);
+        } else if (p.startsWith('http://') || p.startsWith('https://')) {
+            imageUrl = p;
+        } else if (p === '@everyone' || p === '@here' || p.startsWith('<@&')) {
+            roleMention = p;
+        } else if (/^\d{17,20}$/.test(p)) {
+            if (!giveRoleId) giveRoleId = p;
+            else if (!roleMention) roleMention = `<@&${p}>`;
+        }
+    });
+
+    return { limit, giveRoleId, roleMention, imageUrl };
+}
+
+// ---------------------------------------------------------
 // Slash Commands Definition
 // ---------------------------------------------------------
 const commands = [
     new SlashCommandBuilder().setName("setup").setDescription("ติดตั้งหน้าต่างเมนูร้านค้าสำหรับลูกค้า (Admin Only)"),
-    new SlashCommandBuilder().setName("setupadmincontrol").setDescription("ติดตั้งแผงควบคุมระบบสำหรับแอดมิน (Control Room)"),
-    new SlashCommandBuilder().setName("add-product").setDescription("เพิ่มสินค้าใหม่ (Admin Only)")
-        .addStringOption(o => o.setName("id").setDescription("ID สินค้า (ภาษาอังกฤษ/ห้ามซ้ำ)").setRequired(true))
-        .addStringOption(o => o.setName("name").setDescription("ชื่อสินค้า").setRequired(true))
-        .addNumberOption(o => o.setName("price").setDescription("ราคาสินค้า").setRequired(true))
-        .addStringOption(o => o.setName("description").setDescription("รายละเอียดสินค้า").setRequired(false)),
-    new SlashCommandBuilder().setName("delete-product").setDescription("ลบสินค้าออกจากระบบ (Admin Only)")
-        .addStringOption(o => o.setName("id").setDescription("ID สินค้าที่ต้องการลบ").setRequired(true)),
-    new SlashCommandBuilder().setName("add-stock").setDescription("เพิ่มสต็อกสินค้า (Admin Only)")
-        .addStringOption(o => o.setName("id").setDescription("ID สินค้า").setRequired(true))
-        .addStringOption(o => o.setName("item").setDescription("ข้อมูลสินค้า/คีย์/โค้ด (คั่นด้วยจุลภาค , ถ้ามีหลายชิ้น)").setRequired(true)),
-    new SlashCommandBuilder().setName("check-stock").setDescription("เช็กสต็อกสินค้าทั้งหมด (Admin Only)"),
-    new SlashCommandBuilder().setName("manage-balance").setDescription("จัดการยอดเงินผู้ใช้ (Admin Only)")
-        .addUserOption(o => o.setName("user").setDescription("ผู้ใช้งานที่ต้องการปรับยอด").setRequired(true))
-        .addStringOption(o => o.setName("action").setDescription("การดำเนินการ").setRequired(true)
-            .addChoices(
-                { name: "เพิ่มเงิน (Add)", value: "add" },
-                { name: "ลดเงิน (Remove)", value: "remove" },
-                { name: "ตั้งค่ายอดเงิน (Set)", value: "set" }
-            ))
-        .addNumberOption(o => o.setName("amount").setDescription("จำนวนเงิน").setRequired(true)),
-    new SlashCommandBuilder().setName("give-points").setDescription("แจกพอยต์/เงิน ให้ผู้ใช้โดยตรง (Admin Only)")
-        .addUserOption(o => o.setName("user").setDescription("ผู้รับพอยต์").setRequired(true))
-        .addNumberOption(o => o.setName("amount").setDescription("จำนวนพอยต์").setRequired(true)),
-    new SlashCommandBuilder().setName("give-program").setDescription("แจกโปรแกรม/คีย์ สินค้าให้ผู้ใช้เข้า DM (Admin Only)")
-        .addUserOption(o => o.setName("user").setDescription("ผู้รับสินค้า").setRequired(true))
-        .addStringOption(o => o.setName("product_id").setDescription("ID สินค้าที่จะแจก").setRequired(true)),
-    new SlashCommandBuilder().setName("check-user").setDescription("เช็กข้อมูลและยอดเงินของผู้ใช้ (Admin Only)")
-        .addUserOption(o => o.setName("user").setDescription("เลือกผู้ใช้งาน").setRequired(true))
+    new SlashCommandBuilder().setName("setupadmincontrol").setDescription("ติดตั้งแผงควบคุมระบบสำหรับแอดมิน (Control Room)")
 ];
 
 const rest = new REST({ version: "9" }).setToken(botToken);
@@ -307,20 +310,17 @@ function createShopMenu() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ---------------------------------------------------------
-// Control Room Menu
-// ---------------------------------------------------------
 function createAdminControlMenu() {
     const embed = new EmbedBuilder()
         .setTitle('⚙️ แผงควบคุมระบบแอดมิน (Control Room)')
         .setDescription(
             'จัดการร้านค้าของคุณได้อย่างสะดวกรวดเร็ว:\n\n' +
-            '• ➕ **เพิ่มสินค้า:** สร้างสินค้าใหม่ ตั้งราคา และยศ\n' +
+            '• ➕ **เพิ่มสินค้า:** สร้างสินค้าใหม่ ตั้งราคา ยศ และลิงก์โหลด\n' +
             '• 🗑️ **ลบสินค้า:** นำสินค้าไม่ได้ขายออกจากระบบ\n' +
-            '• 📈 **เพิ่ม / 📉 ลดสต็อก:** จัดการจำนวนสินค้าเข้าออกคลัง\n' +
+            '• 📈 **เพิ่มสต็อก:** เลือกสินค้าจากเมนู แล้วกรอกจำนวนชิ้นได้ทันที\n' +
             '• 📊 **เช็กสต็อกทั้งหมด:** ตรวจสอบสต็อกและยอดขายทั้งหมด\n' +
-            '• 💳 **จัดการเงิน / 🔍 เช็กข้อมูลผู้ใช้:** ตรวจสอบและจัดการลูกค้า\n' +
-            '• 🎉 **กิจกรรมแจก:** แจกโปรแกรมดาวน์โหลด หรือแจกพอยต์สะสม'
+            '• 💳 **จัดการเงินผู้ใช้:** เลือกผู้ใช้จากเมนูดรอปดาวน์ และปรับเงิน\n' +
+            '• 🎉 **กิจกรรมแจก:** เลือกห้องจากเมนูดรอปดาวน์ได้ทันที'
         )
         .setColor('#2b2d31');
 
@@ -328,7 +328,7 @@ function createAdminControlMenu() {
         new ButtonBuilder().setCustomId('btn_admin_add_product').setLabel('เพิ่มสินค้า').setEmoji('➕').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('btn_admin_delete_product').setLabel('ลบสินค้า').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('btn_admin_add_stock').setLabel('เพิ่มสต็อก').setEmoji('📈').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('btn_admin_remove_stock').setLabel('ลดสต็อก').setEmoji('📉').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('btn_admin_remove_stock').setLabel('ลด/ล้างสต็อก').setEmoji('📉').setStyle(ButtonStyle.Secondary)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
@@ -466,152 +466,14 @@ client.on("interactionCreate", async (interaction) => {
             }
 
             const name = interaction.commandName;
-
             if (name === 'setup') return await interaction.reply(createShopMenu());
             if (name === 'setupadmincontrol') return await interaction.reply(createAdminControlMenu());
-
-            if (name === 'give-points') {
-                const targetUser = interaction.options.getUser('user');
-                const amount = interaction.options.getNumber('amount');
-
-                const balances = getBalances();
-                if (!balances[targetUser.id]) balances[targetUser.id] = 0;
-                balances[targetUser.id] += amount;
-                saveBalances(balances);
-
-                return interaction.reply({ content: `🎁 เติม/แจกพอยต์ให้ <@${targetUser.id}> จำนวน **${amount} พอยต์** เรียบร้อยแล้ว! (ยอดคงเหลือใหม่: **${balances[targetUser.id]} พอยต์**)`, ephemeral: true });
-            }
-
-            if (name === 'give-program') {
-                const targetUser = interaction.options.getUser('user');
-                const productId = interaction.options.getString('product_id');
-
-                const products = getProducts();
-                const product = products.find(p => p.id === productId);
-
-                if (!product) return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${productId}\``, ephemeral: true });
-                if (!Array.isArray(product.stock) || product.stock.length === 0) {
-                    return interaction.reply({ content: `❌ สินค้า \`${product.name}\` หมดสต็อก ไม่สามารถแจกได้`, ephemeral: true });
-                }
-
-                const itemKey = product.stock.shift();
-                saveProducts(products);
-
-                try {
-                    await targetUser.send({
-                        embeds: [new EmbedBuilder()
-                            .setColor("Gold")
-                            .setTitle(`🎁 คุณได้รับของขวัญพิเศษ/โปรแกรมฟรี!`)
-                            .setDescription(`🎉 แอดมินได้ส่งสินค้า **${product.name}** ให้แก่คุณ!\n\n🔑 **ข้อมูลคีย์/สคริปต์ของคุณ:**\n\`\`\`${itemKey}\`\`\``)
-                        ]
-                    });
-                    return interaction.reply({ content: `✅ แจกสินค้า \`${product.name}\` ให้แก่ <@${targetUser.id}> ส่งเข้า DM เรียบร้อยแล้ว!`, ephemeral: true });
-                } catch (e) {
-                    return interaction.reply({ content: `⚠️ ตัดสต็อกเรียบร้อยแล้ว แต่ไม่สามารถส่ง DM หาผู้ใช้ได้ (เนื่องจากปิด DM): \`\`\`${itemKey}\`\`\``, ephemeral: true });
-                }
-            }
-
-            if (name === 'add-product') {
-                const id = interaction.options.getString('id');
-                const pName = interaction.options.getString('name');
-                const price = interaction.options.getNumber('price');
-                const desc = interaction.options.getString('description') || 'ไม่มีรายละเอียด';
-
-                const products = getProducts();
-                if (products.some(p => p.id === id)) {
-                    return interaction.reply({ content: `❌ มีสินค้า ID \`${id}\` อยู่ในระบบแล้ว`, ephemeral: true });
-                }
-
-                products.push({ id, name: pName, price, description: desc, stock: [] });
-                saveProducts(products);
-
-                return interaction.reply({ content: `✅ เพิ่มสินค้า \`${pName}\` (ID: ${id}) ราคา ${price} บาท เรียบร้อยแล้ว!`, ephemeral: true });
-            }
-
-            if (name === 'delete-product') {
-                const id = interaction.options.getString('id');
-                let products = getProducts();
-                const initialLen = products.length;
-
-                products = products.filter(p => p.id !== id);
-                if (products.length === initialLen) {
-                    return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${id}\``, ephemeral: true });
-                }
-
-                saveProducts(products);
-                return interaction.reply({ content: `🗑️ ลบสินค้า ID \`${id}\` เรียบร้อยแล้ว`, ephemeral: true });
-            }
-
-            if (name === 'add-stock') {
-                const id = interaction.options.getString('id');
-                const rawItems = interaction.options.getString('item');
-                const newItems = rawItems.split(',').map(s => s.trim()).filter(Boolean);
-
-                const products = getProducts();
-                const product = products.find(p => p.id === id);
-
-                if (!product) return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${id}\``, ephemeral: true });
-
-                if (!Array.isArray(product.stock)) product.stock = [];
-                product.stock.push(...newItems);
-                saveProducts(products);
-
-                return interaction.reply({ content: `📦 เพิ่มสต็อกสินค้า \`${product.name}\` จำนวน **${newItems.length} ชิ้น** (รวมในคลัง: ${product.stock.length} ชิ้น)`, ephemeral: true });
-            }
-
-            if (name === 'check-stock') {
-                const products = getProducts();
-                if (products.length === 0) return interaction.reply({ content: "📦 ไม่พบสินค้าในระบบ", ephemeral: true });
-
-                const embed = new EmbedBuilder().setTitle("📊 รายงานสต็อกสินค้าและระบบ").setColor("Blue");
-                products.forEach(p => {
-                    const count = Array.isArray(p.stock) ? p.stock.length : 0;
-                    embed.addFields({ name: `📌 ${p.name} (ID: ${p.id})`, value: `💰 ราคา: ${p.price} บาท\n📦 สินค้าคงเหลือ: **${count} ชิ้น**` });
-                });
-
-                return interaction.reply({ embeds: [embed], ephemeral: true });
-            }
-
-            if (name === 'manage-balance') {
-                const targetUser = interaction.options.getUser('user');
-                const action = interaction.options.getString('action');
-                const amount = interaction.options.getNumber('amount');
-
-                const balances = getBalances();
-                let current = balances[targetUser.id] || 0;
-
-                if (action === 'add') current += amount;
-                else if (action === 'remove') current = Math.max(0, current - amount);
-                else if (action === 'set') current = amount;
-
-                balances[targetUser.id] = current;
-                saveBalances(balances);
-
-                return interaction.reply({ content: `💳 อัปเดตยอดเงินของ <@${targetUser.id}> เรียบร้อยแล้ว! ยอดเงินใหม่: **${current.toFixed(2)} บาท**`, ephemeral: true });
-            }
-
-            if (name === 'check-user') {
-                const targetUser = interaction.options.getUser('user');
-                const balances = getBalances();
-                const balance = balances[targetUser.id] || 0;
-
-                const embed = new EmbedBuilder()
-                    .setTitle(`🔍 ข้อมูลผู้ใช้: ${targetUser.username}`)
-                    .setThumbnail(targetUser.displayAvatarURL())
-                    .setColor("Gold")
-                    .addFields(
-                        { name: "🆔 Discord ID", value: targetUser.id, inline: true },
-                        { name: "💳 ยอดเงินคงเหลือ", value: `**${balance.toFixed(2)} บาท**`, inline: true }
-                    );
-
-                return interaction.reply({ embeds: [embed], ephemeral: true });
-            }
         }
 
         // --- 2. Button Handlers ---
         if (interaction.isButton()) {
 
-            // Handling Claims for Giveaways
+            // Handling Claims for Giveaways (กดรับของรางวัล)
             if (interaction.customId.startsWith('claim_giveaway_')) {
                 const giveawayId = interaction.customId.replace('claim_giveaway_', '');
                 const giveaways = getGiveaways();
@@ -634,7 +496,8 @@ client.on("interactionCreate", async (interaction) => {
                 gw.claimedUsers.push(interaction.user.id);
                 saveGiveaways(giveaways);
 
-                if (gw.type === 'item' && gw.giveRoleId) {
+                // มอบยศหากตั้งค่าไว้
+                if (gw.giveRoleId) {
                     try {
                         const role = interaction.guild.roles.cache.get(gw.giveRoleId);
                         if (role) await interaction.member.roles.add(role);
@@ -655,12 +518,13 @@ client.on("interactionCreate", async (interaction) => {
                     });
                 } else if (gw.type === 'item') {
                     let msg = `🎉 **ยินดีด้วย!** คุณได้รับของรางวัล **${gw.itemName}** เรียบร้อยแล้ว!`;
-                    if (gw.downloadUrl) {
-                        msg += `\n\n📥 **ลิงก์ดาวน์โหลดโปรแกรม:**\n${gw.downloadUrl}`;
+                    if (gw.downloadUrl && gw.downloadUrl.startsWith('http')) {
+                        msg += `\n\n📥 **ลิงก์ดาวน์โหลดโปรแกรมของคุณ:**\n${gw.downloadUrl}`;
                     }
                     await interaction.reply({ content: msg, ephemeral: true });
                 }
 
+                // อัปเดตจำนวนผู้รับสิทธิ์ใน Embed
                 try {
                     const embedMsg = interaction.message;
                     const oldEmbed = embedMsg.embeds[0];
@@ -674,7 +538,7 @@ client.on("interactionCreate", async (interaction) => {
                 return;
             }
 
-            // --- Admin Control Buttons ---
+            // --- Admin Control Buttons Check ---
             if (interaction.customId.startsWith('btn_admin_')) {
                 if (!isAdmin(interaction)) {
                     return interaction.reply({ content: "❌ เฉพาะ Admin เท่านั้นที่ใช้งานได้ครับ", ephemeral: true });
@@ -687,35 +551,62 @@ client.on("interactionCreate", async (interaction) => {
                     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_id').setLabel('ID สินค้า (ภาษาอังกฤษ/ห้ามซ้ำ)').setStyle(TextInputStyle.Short).setRequired(true)),
                     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_name').setLabel('ชื่อสินค้า').setStyle(TextInputStyle.Short).setRequired(true)),
                     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_price').setLabel('ราคาสินค้า (บาท)').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_desc').setLabel('รายละเอียดสินค้า').setStyle(TextInputStyle.Paragraph).setRequired(false))
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_download').setLabel('ลิงก์ดาวน์โหลดสินค้า (เว้นว่างได้)').setStyle(TextInputStyle.Short).setRequired(false)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_role').setLabel('ID ยศที่จะได้รับเมื่อซื้อ (เว้นว่างได้)').setStyle(TextInputStyle.Short).setRequired(false))
                 );
                 return await interaction.showModal(modal);
             }
 
             if (interaction.customId === 'btn_admin_delete_product') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_delete_product').setTitle('🗑️ ลบสินค้าออกจากระบบ');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_id').setLabel('ID สินค้าที่ต้องการลบ').setStyle(TextInputStyle.Short).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const products = getProducts();
+                if (products.length === 0) return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบให้ลบ", ephemeral: true });
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select_admin_delete_product')
+                    .setPlaceholder('🗑️ เลือกสินค้าที่ต้องการลบ...')
+                    .addOptions(products.map(p => ({ label: p.name, description: `ID: ${p.id} | ราคา ${p.price} บาท`, value: p.id })));
+
+                return interaction.reply({
+                    content: "📌 **กรุณาเลือกสินค้าที่ต้องการลบออกจากระบบ:**",
+                    components: [new ActionRowBuilder().addComponents(selectMenu)],
+                    ephemeral: true
+                });
             }
 
             if (interaction.customId === 'btn_admin_add_stock') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_add_stock').setTitle('📈 เพิ่มสต็อกสินค้า');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_id').setLabel('ID สินค้า').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_items').setLabel('คีย์/โค้ดสินค้า (คั่นด้วยจุลภาค ,)').setStyle(TextInputStyle.Paragraph).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const products = getProducts();
+                if (products.length === 0) return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบ กรุณาเพิ่มสินค้าก่อน", ephemeral: true });
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select_admin_add_stock')
+                    .setPlaceholder('📈 เลือกสินค้าที่ต้องการเติมสต็อก...')
+                    .addOptions(products.map(p => ({
+                        label: p.name,
+                        description: `ID: ${p.id} | คงเหลือปัจจุบัน: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น`,
+                        value: p.id
+                    })));
+
+                return interaction.reply({
+                    content: "📌 **เลือกสินค้าที่ต้องการเพิ่มสต็อก (สิทธิ์การซื้อ):**",
+                    components: [new ActionRowBuilder().addComponents(selectMenu)],
+                    ephemeral: true
+                });
             }
 
             if (interaction.customId === 'btn_admin_remove_stock') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_remove_stock').setTitle('📉 ลด/ล้างสต็อกสินค้า');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_id').setLabel('ID สินค้า').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_count').setLabel('จำนวนที่ต้องการลบ (หรือพิมพ์ all เพื่อล้าง)').setStyle(TextInputStyle.Short).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const products = getProducts();
+                if (products.length === 0) return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบ", ephemeral: true });
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select_admin_remove_stock')
+                    .setPlaceholder('📉 เลือกสินค้าที่ต้องการล้าง/ลดสต็อก...')
+                    .addOptions(products.map(p => ({ label: p.name, description: `ID: ${p.id} | คงเหลือ: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น`, value: p.id })));
+
+                return interaction.reply({
+                    content: "📌 **เลือกสินค้าที่ต้องการล้างสต็อกทั้งหมด:**",
+                    components: [new ActionRowBuilder().addComponents(selectMenu)],
+                    ephemeral: true
+                });
             }
 
             if (interaction.customId === 'btn_admin_check_stock') {
@@ -730,46 +621,56 @@ client.on("interactionCreate", async (interaction) => {
                 return interaction.reply({ embeds: [embed], ephemeral: true });
             }
 
+            // เลือกผู้ใช้ผ่าน UserSelectMenu
             if (interaction.customId === 'btn_admin_manage_balance') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_manage_balance').setTitle('💳 จัดการยอดเงินผู้ใช้');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('u_id').setLabel('Discord User ID ผู้ใช้').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('u_action').setLabel('การดำเนินการ (add / remove / set)').setPlaceholder('add = เพิ่ม, remove = ลด, set = ตั้งค่า').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('u_amount').setLabel('จำนวนเงิน (พอยต์)').setStyle(TextInputStyle.Short).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const userSelect = new UserSelectMenuBuilder()
+                    .setCustomId('select_admin_balance_user')
+                    .setPlaceholder('👤 เลือกผู้ใช้ที่ต้องการจัดการเงิน...');
+
+                return interaction.reply({
+                    content: "📌 **กรุณาเลือกผู้ใช้งานที่ต้องการเพิ่ม/ลด/ตั้งค่ายอดเงิน:**",
+                    components: [new ActionRowBuilder().addComponents(userSelect)],
+                    ephemeral: true
+                });
             }
 
             if (interaction.customId === 'btn_admin_check_user') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_check_user').setTitle('🔍 เช็กข้อมูลผู้ใช้');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('u_id').setLabel('Discord User ID ผู้ใช้').setStyle(TextInputStyle.Short).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const userSelect = new UserSelectMenuBuilder()
+                    .setCustomId('select_admin_check_user')
+                    .setPlaceholder('🔍 เลือกผู้ใช้ที่ต้องการเช็กข้อมูล...');
+
+                return interaction.reply({
+                    content: "📌 **กรุณาเลือกผู้ใช้งานที่ต้องการเช็กยอดเงิน:**",
+                    components: [new ActionRowBuilder().addComponents(userSelect)],
+                    ephemeral: true
+                });
             }
 
+            // เลือกห้องแจกผ่าน ChannelSelectMenu
             if (interaction.customId === 'btn_admin_give_item') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_give_item').setTitle('🎁 กิจกรรมแจกโปรแกรม / ของ');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_channel').setLabel('ID ห้องที่จะแจก').setPlaceholder('เช่น 123456789012345678').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_title').setLabel('หัวข้อกิจกรรม').setPlaceholder('เช่น แจกฟรี โปรแกรม VIP LucaShop').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_name').setLabel('ชื่อของที่จะแจก / รายละเอียดกิจกรรม').setPlaceholder('ใส่ชื่อของ และรายละเอียดกติกา').setStyle(TextInputStyle.Paragraph).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_download').setLabel('ลิงก์ดาวน์โหลดโปรแกรม').setPlaceholder('https://... (เว้นว่างได้)').setStyle(TextInputStyle.Short).setRequired(false)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_more').setLabel('จำนวนคนรับ / ยศรับ / ยศแท็ก / รูปภาพ').setPlaceholder('รูปแบบ: ลิมิตคน|IDยศที่จะแจก|ยศแท็ก|URLรูป').setStyle(TextInputStyle.Short).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const channelSelect = new ChannelSelectMenuBuilder()
+                    .setCustomId('select_admin_give_item_channel')
+                    .setPlaceholder('📢 เลือกห้องที่ต้องการจัดกิจกรรมแจกโปรแกรม...')
+                    .setChannelTypes([ChannelType.GuildText]);
+
+                return interaction.reply({
+                    content: "📌 **เลือกห้องที่ต้องการส่งข้อความกิจกรรมแจกโปรแกรม/ของ:**",
+                    components: [new ActionRowBuilder().addComponents(channelSelect)],
+                    ephemeral: true
+                });
             }
 
             if (interaction.customId === 'btn_admin_give_points') {
-                const modal = new ModalBuilder().setCustomId('modal_admin_give_points').setTitle('💎 กิจกรรมแจกพอยต์');
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_channel').setLabel('ID ห้องที่จะแจก').setPlaceholder('เช่น 123456789012345678').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_title').setLabel('หัวข้อกิจกรรม').setPlaceholder('เช่น กิจกรรมแจกพอยต์ฟรี 50 พอยต์').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_desc').setLabel('รายละเอียดกิจกรรม').setPlaceholder('รายละเอียดกติกา').setStyle(TextInputStyle.Paragraph).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_amount').setLabel('จำนวนพอยต์ต่อคน').setPlaceholder('เช่น 50').setStyle(TextInputStyle.Short).setRequired(true)),
-                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_more').setLabel('จำนวนคนรับ / ยศแท็ก / ลิงก์รูปภาพ').setPlaceholder('รูปแบบ: ลิมิตคน|ยศแท็ก|URLรูปภาพ (เช่น 10|@everyone|https://...)').setStyle(TextInputStyle.Short).setRequired(true))
-                );
-                return await interaction.showModal(modal);
+                const channelSelect = new ChannelSelectMenuBuilder()
+                    .setCustomId('select_admin_give_points_channel')
+                    .setPlaceholder('📢 เลือกห้องที่ต้องการจัดกิจกรรมแจกพอยต์...')
+                    .setChannelTypes([ChannelType.GuildText]);
+
+                return interaction.reply({
+                    content: "📌 **เลือกห้องที่ต้องการส่งข้อความกิจกรรมแจกพอยต์:**",
+                    components: [new ActionRowBuilder().addComponents(channelSelect)],
+                    ephemeral: true
+                });
             }
 
             // --- Client Buttons ---
@@ -894,8 +795,115 @@ client.on("interactionCreate", async (interaction) => {
             }
         }
 
-        // --- 3. String Select Menu ---
-        if (interaction.isStringSelectMenu()) {
+        // --- 3. Select Menu Handlers ---
+        if (interaction.isSelectMenu()) {
+
+            // แอดมินเลือกลบสินค้า
+            if (interaction.customId === 'select_admin_delete_product') {
+                const productId = interaction.values[0];
+                let products = getProducts();
+                products = products.filter(p => p.id !== productId);
+                saveProducts(products);
+                return interaction.reply({ content: `🗑️ ลบสินค้า ID \`${productId}\` เรียบร้อยแล้ว`, ephemeral: true });
+            }
+
+            // แอดมินเลือกสินค้าเพื่อเพิ่มสต็อก (ขึ้น Modal ถามจำนวน)
+            if (interaction.customId === 'select_admin_add_stock') {
+                const productId = interaction.values[0];
+                tempAdminData.set(interaction.user.id, { productId });
+
+                const modal = new ModalBuilder().setCustomId('modal_admin_add_stock_count').setTitle('📈 เพิ่มจำนวนสต็อกสินค้า');
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('stock_count')
+                            .setLabel('จำนวนสต็อก/สิทธิ์ที่ต้องการเพิ่ม')
+                            .setPlaceholder('เช่น 20')
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true)
+                    )
+                );
+                return await interaction.showModal(modal);
+            }
+
+            // แอดมินเลือกล้างสต็อก
+            if (interaction.customId === 'select_admin_remove_stock') {
+                const productId = interaction.values[0];
+                const products = getProducts();
+                const p = products.find(x => x.id === productId);
+                if (p) {
+                    p.stock = [];
+                    saveProducts(products);
+                    return interaction.reply({ content: `📉 ล้างสต็อกสินค้า \`${p.name}\` เรียบร้อยแล้ว`, ephemeral: true });
+                }
+            }
+
+            // แอดมินเลือกผู้ใช้เพื่อปรับเงิน (ขึ้น Modal ถาม action และจำนวนเงิน)
+            if (interaction.customId === 'select_admin_balance_user') {
+                const targetUserId = interaction.values[0];
+                tempAdminData.set(interaction.user.id, { targetUserId });
+
+                const modal = new ModalBuilder().setCustomId('modal_admin_manage_balance_exec').setTitle('💳 จัดการเงินผู้ใช้');
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('u_action')
+                            .setLabel('การดำเนินการ (add = เพิ่ม, remove = ลด, set = ตั้งค่า)')
+                            .setPlaceholder('พิมพ์ add หรือ remove หรือ set')
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true)
+                    ),
+                    new ActionRowBuilder().addComponents(
+                        new TextInputBuilder()
+                            .setCustomId('u_amount')
+                            .setLabel('จำนวนเงิน (พอยต์)')
+                            .setPlaceholder('เช่น 100')
+                            .setStyle(TextInputStyle.Short)
+                            .setRequired(true)
+                    )
+                );
+                return await interaction.showModal(modal);
+            }
+
+            // แอดมินเลือกผู้ใช้เพื่อเช็กเงิน
+            if (interaction.customId === 'select_admin_check_user') {
+                const targetUserId = interaction.values[0];
+                const balances = getBalances();
+                const bal = balances[targetUserId] || 0;
+                return interaction.reply({ content: `🔍 **ข้อมูลผู้ใช้:** <@${targetUserId}>\n💳 **ยอดเงินคงเหลือ:** **${bal.toFixed(2)} บาท**`, ephemeral: true });
+            }
+
+            // แอดมินเลือกห้องแจกโปรแกรม (ขึ้น Modal กรอกรายละเอียด)
+            if (interaction.customId === 'select_admin_give_item_channel') {
+                const channelId = interaction.values[0];
+                tempAdminData.set(interaction.user.id, { channelId });
+
+                const modal = new ModalBuilder().setCustomId('modal_admin_give_item_exec').setTitle('🎁 รายละเอียดกิจกรรมแจกโปรแกรม');
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_title').setLabel('หัวข้อกิจกรรม').setPlaceholder('เช่น แจกฟรี โปรแกรม VIP LucaShop').setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_name').setLabel('ชื่อของที่จะแจก / รายละเอียดกิจกรรม').setPlaceholder('ใส่ชื่อของ และรายละเอียดกติกา').setStyle(TextInputStyle.Paragraph).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_download').setLabel('ลิงก์ดาวน์โหลดโปรแกรม').setPlaceholder('https://... (เว้นว่างได้)').setStyle(TextInputStyle.Short).setRequired(false)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('g_more').setLabel('จำนวนคนรับ / ยศรับ / ยศแท็ก / รูปภาพ').setPlaceholder('รูปแบบ: ลิมิตคน|IDยศที่จะแจก|ยศแท็ก|URLรูปภาพ (เว้นช่องได้)').setStyle(TextInputStyle.Short).setRequired(true))
+                );
+                return await interaction.showModal(modal);
+            }
+
+            // แอดมินเลือกห้องแจกพอยต์ (ขึ้น Modal กรอกรายละเอียด)
+            if (interaction.customId === 'select_admin_give_points_channel') {
+                const channelId = interaction.values[0];
+                tempAdminData.set(interaction.user.id, { channelId });
+
+                const modal = new ModalBuilder().setCustomId('modal_admin_give_points_exec').setTitle('💎 รายละเอียดกิจกรรมแจกพอยต์');
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_title').setLabel('หัวข้อกิจกรรม').setPlaceholder('เช่น กิจกรรมแจกพอยต์ฟรี 50 พอยต์').setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_desc').setLabel('รายละเอียดกิจกรรม').setPlaceholder('รายละเอียดกติกา').setStyle(TextInputStyle.Paragraph).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_amount').setLabel('จำนวนพอยต์ต่อคน').setPlaceholder('เช่น 50').setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('p_more').setLabel('จำนวนคนรับ / ยศแท็ก / ลิงก์รูปภาพ').setPlaceholder('รูปแบบ: ลิมิตคน|ยศแท็ก|URLรูปภาพ (เช่น 10|@everyone|https://...)').setStyle(TextInputStyle.Short).setRequired(true))
+                );
+                return await interaction.showModal(modal);
+            }
+
+            // ผู้ใช้กดเลือกซื้อสินค้า
             if (interaction.customId === 'select_product_buy') {
                 const productId = interaction.values[0];
                 const products = getProducts();
@@ -920,11 +928,26 @@ client.on("interactionCreate", async (interaction) => {
                 saveProducts(products);
                 saveBalances(balances);
 
+                // แจกยศถ้ามีการตั้งค่าไว้
+                if (product.roleId) {
+                    try {
+                        const role = interaction.guild.roles.cache.get(product.roleId);
+                        if (role) await interaction.member.roles.add(role);
+                    } catch (e) {
+                        console.log("Cannot add product role:", e);
+                    }
+                }
+
+                let replyMsg = `📦 **สินค้า:** ${product.name}\n💰 **ราคา:** ${product.price} บาท\n💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท\n\n🔑 **ข้อมูลสินค้า/สิทธิ์ของคุณ:**\n\`\`\`${itemReceived}\`\`\``;
+                if (product.downloadUrl && product.downloadUrl.startsWith('http')) {
+                    replyMsg += `\n\n📥 **ลิงก์ดาวน์โหลดสินค้า:**\n${product.downloadUrl}`;
+                }
+
                 return interaction.reply({
                     embeds: [new EmbedBuilder()
                         .setColor("Green")
                         .setTitle("🎉 สั่งซื้อสินค้าสำเร็จ!")
-                        .setDescription(`📦 **สินค้า:** ${product.name}\n💰 **ราคา:** ${product.price} บาท\n💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท\n\n🔑 **ข้อมูลสินค้า/คีย์ของคุณ:**\n\`\`\`${itemReceived}\`\`\``)
+                        .setDescription(replyMsg)
                     ],
                     ephemeral: true
                 });
@@ -938,103 +961,81 @@ client.on("interactionCreate", async (interaction) => {
                 const id = interaction.fields.getTextInputValue('p_id').trim();
                 const name = interaction.fields.getTextInputValue('p_name').trim();
                 const price = Number(interaction.fields.getTextInputValue('p_price').trim());
-                const desc = interaction.fields.getTextInputValue('p_desc') || 'ไม่มีรายละเอียด';
+                const downloadUrl = interaction.fields.getTextInputValue('p_download') || '';
+                const roleId = interaction.fields.getTextInputValue('p_role') || '';
 
                 const products = getProducts();
                 if (products.some(p => p.id === id)) return interaction.reply({ content: `❌ มีสินค้า ID \`${id}\` แล้ว`, ephemeral: true });
 
-                products.push({ id, name, price, description: desc, stock: [] });
+                products.push({ id, name, price, downloadUrl, roleId, stock: [] });
                 saveProducts(products);
                 return interaction.reply({ content: `✅ เพิ่มสินค้า \`${name}\` (ID: ${id}) ราคา ${price} บาท เรียบร้อยแล้ว!`, ephemeral: true });
             }
 
-            if (interaction.customId === 'modal_admin_delete_product') {
-                const id = interaction.fields.getTextInputValue('p_id').trim();
-                let products = getProducts();
-                const initLen = products.length;
-                products = products.filter(p => p.id !== id);
-                if (products.length === initLen) return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${id}\``, ephemeral: true });
-                saveProducts(products);
-                return interaction.reply({ content: `🗑️ ลบสินค้า ID \`${id}\` เรียบร้อยแล้ว`, ephemeral: true });
-            }
+            if (interaction.customId === 'modal_admin_add_stock_count') {
+                const temp = tempAdminData.get(interaction.user.id);
+                if (!temp || !temp.productId) return interaction.reply({ content: "❌ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง", ephemeral: true });
 
-            if (interaction.customId === 'modal_admin_add_stock') {
-                const id = interaction.fields.getTextInputValue('p_id').trim();
-                const items = interaction.fields.getTextInputValue('p_items').split(',').map(s => s.trim()).filter(Boolean);
+                const count = parseInt(interaction.fields.getTextInputValue('stock_count').trim()) || 0;
+                if (count <= 0) return interaction.reply({ content: "❌ กรุณากรอกจำนวนตัวเลขที่มากกว่า 0", ephemeral: true });
+
                 const products = getProducts();
-                const p = products.find(x => x.id === id);
-                if (!p) return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${id}\``, ephemeral: true });
+                const p = products.find(x => x.id === temp.productId);
+                if (!p) return interaction.reply({ content: "❌ ไม่พบสินค้านี้", ephemeral: true });
+
                 if (!Array.isArray(p.stock)) p.stock = [];
-                p.stock.push(...items);
-                saveProducts(products);
-                return interaction.reply({ content: `📈 เพิ่มสต็อกสินค้า \`${p.name}\` จำนวน ${items.length} ชิ้น (รวมในคลัง: ${p.stock.length} ชิ้น)`, ephemeral: true });
-            }
-
-            if (interaction.customId === 'modal_admin_remove_stock') {
-                const id = interaction.fields.getTextInputValue('p_id').trim();
-                const countVal = interaction.fields.getTextInputValue('p_count').trim();
-                const products = getProducts();
-                const p = products.find(x => x.id === id);
-                if (!p) return interaction.reply({ content: `❌ ไม่พบสินค้า ID \`${id}\``, ephemeral: true });
-
-                if (countVal.toLowerCase() === 'all') {
-                    p.stock = [];
-                } else {
-                    const c = parseInt(countVal) || 0;
-                    p.stock.splice(0, c);
+                for (let i = 0; i < count; i++) {
+                    p.stock.push(`[สิทธิ์การใช้งานสินค้า - ${p.name}]`);
                 }
                 saveProducts(products);
-                return interaction.reply({ content: `📉 ปรับลดสต็อกสินค้า \`${p.name}\` เรียบร้อยแล้ว (คงเหลือ: ${p.stock.length} ชิ้น)`, ephemeral: true });
+                tempAdminData.delete(interaction.user.id);
+
+                return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` จำนวน **${count} ชิ้น** เรียบร้อยแล้ว! (รวมคงเหลือ: ${p.stock.length} ชิ้น)`, ephemeral: true });
             }
 
-            if (interaction.customId === 'modal_admin_manage_balance') {
-                const userId = interaction.fields.getTextInputValue('u_id').trim();
+            if (interaction.customId === 'modal_admin_manage_balance_exec') {
+                const temp = tempAdminData.get(interaction.user.id);
+                if (!temp || !temp.targetUserId) return interaction.reply({ content: "❌ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง", ephemeral: true });
+
                 const action = interaction.fields.getTextInputValue('u_action').trim().toLowerCase();
                 const amount = Number(interaction.fields.getTextInputValue('u_amount').trim());
 
                 const balances = getBalances();
-                let cur = balances[userId] || 0;
+                let cur = balances[temp.targetUserId] || 0;
                 if (action === 'add') cur += amount;
                 else if (action === 'remove') cur = Math.max(0, cur - amount);
                 else if (action === 'set') cur = amount;
 
-                balances[userId] = cur;
+                balances[temp.targetUserId] = cur;
                 saveBalances(balances);
-                return interaction.reply({ content: `💳 อัปเดตยอดเงินของผู้ใช้ <@${userId}> เป็น **${cur.toFixed(2)} บาท** เรียบร้อย!`, ephemeral: true });
+                tempAdminData.delete(interaction.user.id);
+
+                return interaction.reply({ content: `💳 อัปเดตยอดเงินของผู้ใช้ <@${temp.targetUserId}> เป็น **${cur.toFixed(2)} บาท** เรียบร้อย!`, ephemeral: true });
             }
 
-            if (interaction.customId === 'modal_admin_check_user') {
-                const userId = interaction.fields.getTextInputValue('u_id').trim();
-                const balances = getBalances();
-                const bal = balances[userId] || 0;
-                return interaction.reply({ content: `🔍 **ข้อมูลผู้ใช้ ID:** \`${userId}\`\n💳 ยอดเงินคงเหลือ: **${bal.toFixed(2)} บาท**`, ephemeral: true });
-            }
+            if (interaction.customId === 'modal_admin_give_item_exec') {
+                const temp = tempAdminData.get(interaction.user.id);
+                if (!temp || !temp.channelId) return interaction.reply({ content: "❌ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง", ephemeral: true });
 
-            if (interaction.customId === 'modal_admin_give_item') {
-                const channelId = interaction.fields.getTextInputValue('g_channel').trim();
                 const title = interaction.fields.getTextInputValue('g_title').trim();
                 const nameAndDesc = interaction.fields.getTextInputValue('g_name').trim();
                 const downloadUrl = interaction.fields.getTextInputValue('g_download') || '';
                 const moreOpts = interaction.fields.getTextInputValue('g_more').trim();
 
-                const targetChannel = interaction.guild.channels.cache.get(channelId);
-                if (!targetChannel) return interaction.reply({ content: `❌ ไม่พบห้อง ID \`${channelId}\` ในเซิร์ฟเวอร์นี้`, ephemeral: true });
+                const targetChannel = interaction.guild.channels.cache.get(temp.channelId);
+                if (!targetChannel) return interaction.reply({ content: `❌ ไม่พบห้องในเซิร์ฟเวอร์นี้`, ephemeral: true });
 
-                const parts = moreOpts.split('|').map(s => s.trim());
-                const limit = parseInt(parts[0]) || 1;
-                const giveRoleId = parts[1] || '';
-                const roleMention = parts[2] || '';
-                const imageUrl = parts[3] || '';
-
+                const parsed = parseGiveawayMoreOptions(moreOpts);
                 const giveawayId = `GW-ITEM-${Date.now()}`;
                 const giveaways = getGiveaways();
+
                 giveaways[giveawayId] = {
                     id: giveawayId,
                     type: 'item',
                     itemName: title,
                     downloadUrl,
-                    limit,
-                    giveRoleId,
+                    limit: parsed.limit,
+                    giveRoleId: parsed.giveRoleId,
                     claimedUsers: [],
                     createdAt: new Date().toISOString()
                 };
@@ -1042,55 +1043,47 @@ client.on("interactionCreate", async (interaction) => {
 
                 const embed = new EmbedBuilder()
                     .setTitle(`🎁 กิจกรรมแจกโปรแกรม/ของ: ${title}`)
-                    .setDescription(`${nameAndDesc}\n\n👥 **จำนวนสิทธิ์:** จำกัด ${limit} คนเท่านั้น!`)
+                    .setDescription(`${nameAndDesc}\n\n👥 **จำนวนสิทธิ์:** จำกัด ${parsed.limit} คนเท่านั้น!`)
                     .setColor('Gold')
-                    .setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${limit} คน` })
+                    .setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${parsed.limit} คน` })
                     .setTimestamp();
 
-                if (imageUrl && imageUrl.startsWith('http')) embed.setImage(imageUrl);
+                if (parsed.imageUrl) embed.setImage(parsed.imageUrl);
 
-                let contentMsg = '';
-                if (roleMention) {
-                    if (roleMention === '@everyone' || roleMention === '@here') contentMsg = roleMention;
-                    else contentMsg = `<@&${roleMention.replace(/[^0-9]/g, '')}>`;
-                }
+                let contentMsg = parsed.roleMention || undefined;
 
+                // สร้างเฉพาะปุ่มกดรับรางวัลเท่านั้น (ไม่ใส่ปุ่มลิงก์ดาวน์โหลดตรงนี้เพื่อป้องกันคนแอบกดดาวน์โหลดก่อน)
                 const claimBtn = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`claim_giveaway_${giveawayId}`).setLabel('🎉 กดรับของรางวัล').setStyle(ButtonStyle.Success)
                 );
 
-                if (downloadUrl && downloadUrl.startsWith('http')) {
-                    claimBtn.addComponents(
-                        new ButtonBuilder().setLabel('📥 ลิงก์ดาวน์โหลด').setStyle(ButtonStyle.Link).setURL(downloadUrl)
-                    );
-                }
+                await targetChannel.send({ content: contentMsg, embeds: [embed], components: [claimBtn] });
+                tempAdminData.delete(interaction.user.id);
 
-                await targetChannel.send({ content: contentMsg || undefined, embeds: [embed], components: [claimBtn] });
-                return interaction.reply({ content: `✅ สร้างกิจกรรมแจกของในห้อง <#${channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
+                return interaction.reply({ content: `✅ สร้างกิจกรรมแจกของในห้อง <#${temp.channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
             }
 
-            if (interaction.customId === 'modal_admin_give_points') {
-                const channelId = interaction.fields.getTextInputValue('p_channel').trim();
+            if (interaction.customId === 'modal_admin_give_points_exec') {
+                const temp = tempAdminData.get(interaction.user.id);
+                if (!temp || !temp.channelId) return interaction.reply({ content: "❌ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง", ephemeral: true });
+
                 const title = interaction.fields.getTextInputValue('p_title').trim();
                 const desc = interaction.fields.getTextInputValue('p_desc').trim();
                 const amount = Number(interaction.fields.getTextInputValue('p_amount').trim());
                 const moreOpts = interaction.fields.getTextInputValue('p_more').trim();
 
-                const targetChannel = interaction.guild.channels.cache.get(channelId);
-                if (!targetChannel) return interaction.reply({ content: `❌ ไม่พบห้อง ID \`${channelId}\` ในเซิร์ฟเวอร์นี้`, ephemeral: true });
+                const targetChannel = interaction.guild.channels.cache.get(temp.channelId);
+                if (!targetChannel) return interaction.reply({ content: `❌ ไม่พบห้องในเซิร์ฟเวอร์นี้`, ephemeral: true });
 
-                const parts = moreOpts.split('|').map(s => s.trim());
-                const limit = parseInt(parts[0]) || 1;
-                const roleMention = parts[1] || '';
-                const imageUrl = parts[2] || '';
-
+                const parsed = parseGiveawayMoreOptions(moreOpts);
                 const giveawayId = `GW-POINTS-${Date.now()}`;
                 const giveaways = getGiveaways();
+
                 giveaways[giveawayId] = {
                     id: giveawayId,
                     type: 'points',
                     pointsAmount: amount,
-                    limit,
+                    limit: parsed.limit,
                     claimedUsers: [],
                     createdAt: new Date().toISOString()
                 };
@@ -1098,25 +1091,23 @@ client.on("interactionCreate", async (interaction) => {
 
                 const embed = new EmbedBuilder()
                     .setTitle(`💎 กิจกรรมแจกพอยต์: ${title}`)
-                    .setDescription(`${desc}\n\n💰 **แจกพอยต์:** **${amount} พอยต์/คน**\n👥 **จำนวนสิทธิ์:** จำกัด ${limit} คนเท่านั้น!`)
+                    .setDescription(`${desc}\n\n💰 **แจกพอยต์:** **${amount} พอยต์/คน**\n👥 **จำนวนสิทธิ์:** จำกัด ${parsed.limit} คนเท่านั้น!`)
                     .setColor('Blue')
-                    .setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${limit} คน` })
+                    .setFooter({ text: `ผู้รับสิทธิ์แล้ว: 0/${parsed.limit} คน` })
                     .setTimestamp();
 
-                if (imageUrl && imageUrl.startsWith('http')) embed.setImage(imageUrl);
+                if (parsed.imageUrl) embed.setImage(parsed.imageUrl);
 
-                let contentMsg = '';
-                if (roleMention) {
-                    if (roleMention === '@everyone' || roleMention === '@here') contentMsg = roleMention;
-                    else contentMsg = `<@&${roleMention.replace(/[^0-9]/g, '')}>`;
-                }
+                let contentMsg = parsed.roleMention || undefined;
 
                 const claimBtn = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`claim_giveaway_${giveawayId}`).setLabel('💎 กดรับพอยต์').setStyle(ButtonStyle.Primary)
                 );
 
-                await targetChannel.send({ content: contentMsg || undefined, embeds: [embed], components: [claimBtn] });
-                return interaction.reply({ content: `✅ สร้างกิจกรรมแจกพอยต์ในห้อง <#${channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
+                await targetChannel.send({ content: contentMsg, embeds: [embed], components: [claimBtn] });
+                tempAdminData.delete(interaction.user.id);
+
+                return interaction.reply({ content: `✅ สร้างกิจกรรมแจกพอยต์ในห้อง <#${temp.channelId}> เรียบร้อยแล้ว!`, ephemeral: true });
             }
 
             if (interaction.customId === "truemoney_modal") {
