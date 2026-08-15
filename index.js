@@ -254,7 +254,7 @@ function parseGiveawayMoreOptions(str) {
     return { limit, giveRoleId, roleMention, imageUrl };
 }
 
-// 📦 ฟังก์ชันส่งกล่อง Embed ทีละ 10 ชุด (เพื่อป้องกันข้อจำกัดของ Discord ที่ส่งได้รอบละ 10 กล่อง และทำให้โชว์ได้ทุกสินค้าไม่มีหาย)
+// 📦 ฟังก์ชันส่งกล่อง Embed ทีละ 10 ชุด
 async function sendEmbedsInChunks(interaction, embeds, ephemeral = true) {
     for (let i = 0; i < embeds.length; i += 10) {
         const chunk = embeds.slice(i, i + 10);
@@ -263,6 +263,41 @@ async function sendEmbedsInChunks(interaction, embeds, ephemeral = true) {
         } else {
             await interaction.followUp({ embeds: chunk, ephemeral });
         }
+    }
+}
+
+// 🚨 [NEW] ฟังก์ชันสำหรับแจ้งเตือนการอัปเดต/สินค้าหมดสต็อกลงห้องที่กำหนด
+async function sendStockNotification(client, type, product, amountAdded = 0) {
+    const targetChannelId = config.stockNotifyChannelId; 
+    if (!targetChannelId) return; // หากไม่ได้ตั้งค่าไว้จะไม่ทำงาน
+
+    const channel = client.channels.cache.get(targetChannelId);
+    if (!channel) return;
+
+    const embed = new EmbedBuilder();
+
+    if (type === 'add') {
+        embed.setTitle('📦 อัปเดตสต็อกสินค้าเข้าใหม่!')
+            .setDescription(`**โปรแกรม/สินค้า:** ${product.name}\n**แอดมินเพิ่มจำนวน:** ${amountAdded} ชิ้น\n**สต็อกปัจจุบันคงเหลือ:** ${product.stock.length} ชิ้น\n\n📝 **รายละเอียด:** ${product.desc || 'ไม่มีรายละเอียด'}`)
+            .setColor('Green');
+    } else if (type === 'empty') {
+        embed.setTitle('⚠️ แจ้งเตือนสินค้าหมดสต็อก!')
+            .setDescription(`**โปรแกรม/สินค้า:** ${product.name}\nขณะนี้มีลูกค้าสั่งซื้อจนสต็อกหมดแล้ว แอดมินโปรดตรวจสอบและพิจารณาเติมสต็อกด้วยครับ!`)
+            .setColor('Red');
+    }
+
+    // เลือกลิงก์รูปภาพ: หากสินค้ามีรูปก็ใช้รูปสินค้า หากไม่มีให้ใช้รูปของร้าน
+    const imgUrl = (product.imageUrl && product.imageUrl.startsWith('http')) ? product.imageUrl : config.imageUrl;
+    if (imgUrl && imgUrl.startsWith('http')) {
+        embed.setImage(imgUrl);
+    }
+    
+    embed.setTimestamp();
+
+    try {
+        await channel.send({ embeds: [embed] });
+    } catch (err) {
+        console.error('Error sending stock notification:', err);
     }
 }
 
@@ -532,8 +567,14 @@ client.on("interactionCreate", async (interaction) => {
                 let stockArr = [];
                 for (let i = 0; i < initialStock; i++) stockArr.push(`[สิทธิ์การใช้งานสินค้า - ${nameProd}]`);
 
-                products.push({ id, name: nameProd, price, desc, imageUrl, roleId, downloadUrl, stock: stockArr });
+                const newObj = { id, name: nameProd, price, desc, imageUrl, roleId, downloadUrl, stock: stockArr };
+                products.push(newObj);
                 saveProducts(products);
+
+                // แจ้งเตือนเมื่อเพิ่มสินค้าพร้อมสต็อก
+                if (initialStock > 0) {
+                    sendStockNotification(interaction.client, 'add', newObj, initialStock);
+                }
 
                 return interaction.reply({ content: `✅ เพิ่มสินค้า \`${nameProd}\` (ID: \`${id}\`) พร้อมสต็อกเริ่มต้น ${initialStock} ชิ้น เรียบร้อย!`, ephemeral: true });
             }
@@ -566,6 +607,9 @@ client.on("interactionCreate", async (interaction) => {
                 for (let i = 0; i < count; i++) p.stock.push(`[สิทธิ์การใช้งานสินค้า - ${p.name}]`);
                 saveProducts(products);
 
+                // แจ้งเตือนเมื่อเพิ่มสต็อกผ่าน Slash Command
+                sendStockNotification(interaction.client, 'add', p, count);
+
                 return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` เพิ่มจำนวน **${count} ชิ้น** สำเร็จ! (คงเหลือรวม: ${p.stock.length} ชิ้น)`, ephemeral: true });
             }
 
@@ -575,7 +619,6 @@ client.on("interactionCreate", async (interaction) => {
                     return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบ", ephemeral: true });
                 }
 
-                // 🛠️ อัปเกรด: แสดงผลรูปภาพใหญ่ชัดเจน พร้อมระบบรองรับโชว์ทุกสินค้า
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
@@ -684,7 +727,6 @@ client.on("interactionCreate", async (interaction) => {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ไม่พบสินค้าในระบบ", ephemeral: true });
 
-                // 🛠️ อัปเกรด: แสดงผลรูปภาพแบบจัดเต็ม ไม่พลาดแม้แต่ชิ้นเดียว
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
@@ -736,7 +778,6 @@ client.on("interactionCreate", async (interaction) => {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ขณะนี้ยังไม่มีสินค้าในร้านครับ", ephemeral: true });
                 
-                // 🛠️ อัปเกรด: แสดงผลรูปภาพ รายละเอียด ยศ และยอดคงเหลือแบบสวยงามตามที่ผู้ใช้ต้องการ
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
@@ -821,6 +862,11 @@ client.on("interactionCreate", async (interaction) => {
                             ]
                         });
                     }
+                }
+
+                // แจ้งเตือนห้องเมื่อสินค้าหมดสต็อก! (เหลือ 0 ชิ้นหลังจากการซื้อ)
+                if (product.stock.length === 0) {
+                    sendStockNotification(interaction.client, 'empty', product);
                 }
 
                 return interaction.update({ embeds: [new EmbedBuilder().setColor("Green").setTitle("🎉 สั่งซื้อสินค้าสำเร็จ!").setDescription(replyMsg)], components: [] });
@@ -979,8 +1025,15 @@ client.on("interactionCreate", async (interaction) => {
                 let stockArr = [];
                 for (let i = 0; i < initialStock; i++) stockArr.push(`[สิทธิ์การใช้งานสินค้า - ${name}]`);
 
-                products.push({ id, name, price, desc, imageUrl, roleId, downloadUrl, stock: stockArr });
+                const newObj = { id, name, price, desc, imageUrl, roleId, downloadUrl, stock: stockArr };
+                products.push(newObj);
                 saveProducts(products);
+
+                // แจ้งเตือนเมื่อเพิ่มสินค้าพร้อมสต็อก
+                if (initialStock > 0) {
+                    sendStockNotification(interaction.client, 'add', newObj, initialStock);
+                }
+
                 return interaction.reply({ content: `✅ เพิ่มสินค้า \`${name}\` พร้อมสต็อกเริ่มต้น ${initialStock} ชิ้น เรียบร้อยแล้ว!`, ephemeral: true });
             }
 
@@ -1024,6 +1077,9 @@ client.on("interactionCreate", async (interaction) => {
                 for (let i = 0; i < count; i++) p.stock.push(`[สิทธิ์การใช้งานสินค้า - ${p.name}]`);
                 saveProducts(products);
                 tempAdminData.delete(interaction.user.id);
+
+                // แจ้งเตือนห้องเมื่อเพิ่มสต็อกสำเร็จผ่าน Modal (กดปุ่ม)
+                sendStockNotification(interaction.client, 'add', p, count);
 
                 return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` จำนวน **${count} ชิ้น** สำเร็จ!`, ephemeral: true });
             }
