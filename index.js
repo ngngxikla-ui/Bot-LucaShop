@@ -254,12 +254,11 @@ function parseGiveawayMoreOptions(str) {
     return { limit, giveRoleId, roleMention, imageUrl };
 }
 
-// รายการ Slash Commands ทั้งหมด (ล็อกสิทธิ์ให้ใช้ได้เฉพาะแอดมิน)
 const commands = [
     new SlashCommandBuilder()
         .setName("setup")
         .setDescription("ติดตั้งหน้าต่างเมนูร้านค้าสำหรับลูกค้า (Admin Only)")
-        .setDefaultMemberPermissions(0), // ล็อกไม่ให้คนทั่วไปกดใช้งานคำสั่งนี้ได้เว้นแต่จะมีสิทธิ์ Administrator / ยศแอดมิน
+        .setDefaultMemberPermissions(0),
     
     new SlashCommandBuilder()
         .setName("control")
@@ -914,7 +913,10 @@ client.on("interactionCreate", async (interaction) => {
                     .setDescription(`${product.desc || 'ไม่มีรายละเอียดสินค้า'}\n\n💰 **ราคา:** ${product.price} บาท\n📦 **สต็อกคงเหลือ:** ${product.stock.length} ชิ้น\n🎗️ **ยศที่จะได้รับ:** ${product.roleId ? `<@&${product.roleId}>` : 'ไม่มียศ'}`)
                     .setColor('Yellow');
                 
-                if (product.imageUrl && product.imageUrl.startsWith('http')) embed.setImage(product.imageUrl);
+                // โค้ดส่วนที่เพิ่มรูปภาพสินค้า (Image) เข้าไปใน Embed เรียบร้อยแล้ว
+                if (product.imageUrl && product.imageUrl.startsWith('http')) {
+                    embed.setImage(product.imageUrl);
+                }
 
                 const actionRow = new ActionRowBuilder().addComponents(
                     new ButtonBuilder().setCustomId(`confirm_buy_${product.id}`).setLabel('✅ ยืนยันการซื้อ').setStyle(ButtonStyle.Success),
@@ -1107,7 +1109,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 });
 
-// ระบบรับสลิปธนาคารอัตโนมัติในช่องแชท (สำหรับลูกค้า)
 client.on('messageCreate', async (message) => {
     try {
         if (message.author.bot) return;
