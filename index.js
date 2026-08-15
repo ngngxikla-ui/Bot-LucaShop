@@ -861,7 +861,7 @@ client.on("interactionCreate", async (interaction) => {
                             embeds: [new EmbedBuilder()
                                 .setColor("Green")
                                 .setTitle("🛒 สั่งซื้อสินค้าสำเร็จ")
-                                .setDescription(`👤 ผู้ซื้อ: <@${interaction.user.id}>\n📦 สินค้า: **${product.name}**\n💰 ราคา: **${product.price} บาท**`)
+                                .setDescription('👤 ผู้ซื้อ: <@' + interaction.user.id + '>\n📦 สินค้า: **' + product.name + '**\n💰 ราคา: **' + product.price + ' บาท**')
                                 .setTimestamp()
                             ]
                         });
