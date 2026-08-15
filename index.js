@@ -854,7 +854,7 @@ client.on("interactionCreate", async (interaction) => {
                     replyMsg += '\n\n📥 **ลิงก์ดาวน์โหลดสินค้า:**\n' + product.downloadUrl;
                 }
 
-                if (config.channellog) {
+              if (config.channellog) {
                     const logChannel = interaction.guild.channels.cache.get(config.channellog) || await interaction.guild.channels.fetch(config.channellog).catch(() => null);
                     if (logChannel) {
                         logChannel.send({
