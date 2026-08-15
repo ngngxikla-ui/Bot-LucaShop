@@ -29,10 +29,13 @@ const fs = require('fs');
 const chalk = require('chalk');
 const QRCode = require('qrcode');
 
-// ⏱️ ตั้งค่าเวลาหมดอายุของการเติมเงิน (หน่วยเป็นนาที) เช่น 5 หรือ 10 นาที
+// ⏱️ ตั้งค่าเวลาหมดอายุของการเติมเงิน (นาที)
 const BANK_TOPUP_TIMEOUT_MINUTES = 5; 
 
-// ฟังก์ชันสร้าง PromptPay Payload ในตัว
+// ตัวแปรเก็บสถานะผู้ใช้ที่กำลังรอส่งสลิปในแชท
+const awaitingSlipUsers = new Map();
+
+// ฟังก์ชันสร้าง PromptPay Payload
 function generatePayload(target, options = {}) {
     const amount = options.amount;
     const sanitized = String(target || '').replace(/[^0-9]/g, '');
@@ -76,7 +79,7 @@ function generatePayload(target, options = {}) {
 const botToken = process.env.TOKEN || config.token;
 
 // ---------------------------------------------------------
-// ระบบความปลอดภัยสำหรับการเติมเงินผ่านธนาคาร / PromptPay
+// ระบบฐานข้อมูล Topup
 // ---------------------------------------------------------
 const TOPUP_FILE = './topups.json';
 let dbWriteQueue = Promise.resolve();
@@ -139,7 +142,7 @@ function getEasySlipApiKey() {
 
 async function verifyBankSlipByUrl(slipUrl, expectedAmount, topupId) {
     const apiKey = getEasySlipApiKey();
-    if (!apiKey) throw new Error('ยังไม่ได้ตั้ง EASYSLIP_API_KEY');
+    if (!apiKey) throw new Error('ยังไม่ได้ตั้ง EASYSLIP_API_KEY ใน config.json');
 
     const response = await fetch('https://api.easyslip.com/v2/verify/bank', {
         method: 'POST',
@@ -178,7 +181,7 @@ async function verifyBankSlipByUrl(slipUrl, expectedAmount, topupId) {
 }
 
 // ---------------------------------------------------------
-// ระบบจัดการฐานข้อมูล (JSON Files)
+// ระบบฐานข้อมูล JSON Files
 // ---------------------------------------------------------
 const DB_FILE = './balances.json';
 function getBalances() {
@@ -232,10 +235,9 @@ function isAdmin(interaction) {
 }
 
 // ---------------------------------------------------------
-// ลงทะเบียน Slash Commands
+// Register Slash Commands
 // ---------------------------------------------------------
 let commandsMap = new Map();
-
 commandsMap.set("setup", { name: "setup", description: "ติดตั้งหน้าต่างเมนูร้านค้าสำหรับลูกค้า (Admin Only)" });
 commandsMap.set("admin_room", { name: "admin_room", description: "เปิดแผงควบคุมร้านค้าสำหรับแอดมิน (Control Room)" });
 commandsMap.set("addproduct", { name: "addproduct", description: "➕ เพิ่มสินค้าใหม่เข้าสู่ร้านค้า (Admin Only)" });
@@ -319,7 +321,7 @@ client.once("ready", () => {
 function createShopMenu() {
     const embed = new EmbedBuilder()
         .setTitle('🛒 LucaShop')
-        .setDescription('• เติมเงินผ่านซองทรูมันนี่ หรือ QR/PromptPay/ธนาคาร\n• ระบบธนาคารจะสร้างรายการเฉพาะผู้ใช้และรอตรวจสอบสลิปก่อนเข้ายอด\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง\n• เลือกโปรแกรมฟรีได้ข้างล่าง')
+        .setDescription('• เติมเงินผ่านซองทรูมันนี่ หรือ QR/PromptPay/ธนาคาร\n• โอนเสร็จแล้วกดปุ่มแนบสลิปเพื่อยืนยันยอดได้ทันที\n• เลือกซื้อสินค้าและโปรแกรมได้ทันทีผ่านปุ่มด้านล่าง')
         .setColor('Blue');
     
     if (config.imageUrl && config.imageUrl !== "") embed.setImage(config.imageUrl);
@@ -346,7 +348,7 @@ function getAdminPanel() {
     const embed = new EmbedBuilder()
         .setColor("DarkButNotBlack")
         .setTitle("⚙️ แผงควบคุมระบบแอดมิน (Control Room)")
-        .setDescription("จัดการร้านค้าของคุณได้อย่างสะดวกรวดเร็ว:\n\n• **➕ เพิ่มสินค้า**: สร้างสินค้าใหม่ ตั้งราคา และยศ\n• **🗑️ ลบสินค้า**: นำสินค้าที่ไม่ได้ขายออกจากระบบ\n• **📈 เพิ่ม / 📉 ลดสต็อก**: จัดการจำนวนสินค้าเข้าออกคลัง\n• **📊 เช็คสต็อกทั้งหมด**: ตรวจสอบสต็อกและยอดขายทั้งหมด\n• **💳 จัดการเงิน / 🔍 เช็คข้อมูลผู้ใช้**: ตรวจสอบและจัดการลูกค้า")
+        .setDescription("จัดการร้านค้าของคุณได้อย่างสะดวกรวดเร็ว")
         .setTimestamp();
 
     const row1 = new ActionRowBuilder().addComponents(
@@ -368,39 +370,11 @@ function getAdminPanel() {
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
-    const nameInput = new TextInputBuilder()
-        .setCustomId('prod_name')
-        .setLabel("ชื่อสินค้า")
-        .setPlaceholder("เช่น ไอดี Roblox / สคริปต์ VIP")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    const priceInput = new TextInputBuilder()
-        .setCustomId('prod_price')
-        .setLabel("ราคา (บาท)")
-        .setPlaceholder("เช่น 50 หรือ 100")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    const stockInput = new TextInputBuilder()
-        .setCustomId('prod_stock')
-        .setLabel("จำนวนสต็อก")
-        .setPlaceholder("เช่น 10")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-    const roleInput = new TextInputBuilder()
-        .setCustomId('prod_role')
-        .setLabel("Role ID ยศที่จะได้รับ (เว้นว่างได้)")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false);
-    
-    const detailsInput = new TextInputBuilder()
-        .setCustomId('prod_links')
-        .setLabel("บรรทัด 1:ลิงก์ | 2:รายละเอียด | 3:รูป")
-        .setPlaceholder("บรรทัด1: ลิงก์ดาวน์โหลด\nบรรทัด2: รายละเอียดสินค้า\nบรรทัด3: ลิงก์รูปตัวอย่าง")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(false);
+    const nameInput = new TextInputBuilder().setCustomId('prod_name').setLabel("ชื่อสินค้า").setPlaceholder("เช่น ไอดี Roblox").setStyle(TextInputStyle.Short).setRequired(true);
+    const priceInput = new TextInputBuilder().setCustomId('prod_price').setLabel("ราคา (บาท)").setPlaceholder("เช่น 50").setStyle(TextInputStyle.Short).setRequired(true);
+    const stockInput = new TextInputBuilder().setCustomId('prod_stock').setLabel("จำนวนสต็อก").setPlaceholder("เช่น 10").setStyle(TextInputStyle.Short).setRequired(true);
+    const roleInput = new TextInputBuilder().setCustomId('prod_role').setLabel("Role ID ยศที่จะได้รับ (เว้นว่างได้)").setStyle(TextInputStyle.Short).setRequired(false);
+    const detailsInput = new TextInputBuilder().setCustomId('prod_links').setLabel("บรรทัด 1:ลิงก์ | 2:รายละเอียด | 3:รูป").setStyle(TextInputStyle.Paragraph).setRequired(false);
 
     modal.addComponents(
         new ActionRowBuilder().addComponents(nameInput),
@@ -414,7 +388,111 @@ function buildAddProductModal() {
 }
 
 // ---------------------------------------------------------
-// ระบบ Interaction หลัก
+// ฟังก์ชันประมวลผลการตรวจสลิป
+// ---------------------------------------------------------
+async function processSlipVerification(user, channel, attachment, topupId) {
+    const topup = getTopups()[topupId];
+    if (!topup) return;
+
+    let verification;
+    try {
+        verification = await verifyBankSlipByUrl(attachment.url, topup.amount, topup.id);
+    } catch (err) {
+        console.error("EasySlip verification error:", err);
+        return await channel.send({
+            content: `<@${user.id}>`,
+            embeds: [new EmbedBuilder()
+                .setColor("Red")
+                .setTitle("⚠️ ตรวจสอบสลิปไม่ผ่าน")
+                .setDescription(`**สาเหตุ:** ${err.message || err}\nกรุณาลองแนบรูปสลิปใหม่อีกครั้งครับ`)]
+        });
+    }
+
+    const duplicate = verification.isDuplicate;
+    const amountMatched = verification.isAmountMatched;
+    const accountMatched = !!verification.matchedAccount;
+    const transRef = verification.transRef;
+
+    const topupsNow = getTopups();
+    const localTransRefUsed = transRef && Object.values(topupsNow).some(t =>
+        t.id !== topup.id && t.status === 'approved' && t.transRef === transRef
+    );
+
+    const verified = !duplicate && !localTransRefUsed && amountMatched && accountMatched && !!transRef;
+
+    if (!verified) {
+        await queueDbWrite(async () => {
+            const topups = getTopups();
+            if (topups[topup.id]) {
+                topups[topup.id].status = 'rejected';
+                saveTopups(topups);
+            }
+        });
+
+        return await channel.send({
+            content: `<@${user.id}>`,
+            embeds: [new EmbedBuilder()
+                .setColor("Red")
+                .setTitle("❌ สลิปไม่ผ่านการตรวจสอบ")
+                .setDescription(
+                    `🧾 รายการ: \`${topup.id}\`\n` +
+                    `💰 ยอดที่ต้องโอน: **${topup.amount.toFixed(2)} บาท**\n` +
+                    `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\n` +
+                    `📌 ยอดเงินตรง: ${amountMatched ? '✅' : '❌'}\n` +
+                    `🏦 บัญชีผู้รับตรง: ${accountMatched ? '✅' : '❌'}\n` +
+                    `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}`
+                )]
+        });
+    }
+
+    const approved = await queueDbWrite(async () => {
+        const topups = getTopups();
+        const t = topups[topup.id];
+        if (!t || t.status === 'approved') return null;
+
+        const balances = getBalances();
+        if (!balances[t.userId]) balances[t.userId] = 0;
+        balances[t.userId] += Number(t.amount);
+        saveBalances(balances);
+
+        t.status = 'approved';
+        t.transRef = transRef;
+        t.approvedAt = new Date().toISOString();
+        t.balanceAfter = balances[t.userId];
+        saveTopups(topups);
+
+        return { balance: balances[t.userId], topup: t };
+    });
+
+    if (!approved) return;
+
+    await channel.send({
+        content: `<@${user.id}>`,
+        embeds: [new EmbedBuilder()
+            .setColor("Green")
+            .setTitle("✅ เติมเงินสำเร็จ!")
+            .setDescription(
+                `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
+                `💰 **ยอดเงินที่ได้รับ:** **${topup.amount.toFixed(2)} บาท**\n` +
+                `💳 **ยอดเงินคงเหลือใหม่:** **${approved.balance.toFixed(2)} บาท**`
+            )]
+    });
+
+    // ส่ง Log สำหรับแอดมิน
+    const logChannel = channel.guild?.channels.cache.get(config.channellog);
+    if (logChannel) {
+        await logChannel.send({
+            embeds: [new EmbedBuilder()
+                .setColor("Green")
+                .setTitle("🏦 เติมเงินสำเร็จ (Auto Verified)")
+                .setDescription(`👤 ผู้เติม: <@${topup.userId}>\n🧾 รายการ: \`${topup.id}\`\n💰 จำนวน: **${topup.amount.toFixed(2)} บาท**\n💳 ยอดสะสม: **${approved.balance.toFixed(2)} บาท**`)
+                .setTimestamp()]
+        });
+    }
+}
+
+// ---------------------------------------------------------
+// Interaction Handler
 // ---------------------------------------------------------
 client.on("interactionCreate", async (interaction) => {
     try {
@@ -424,230 +502,48 @@ client.on("interactionCreate", async (interaction) => {
             if (interaction.commandName === 'setup') return await interaction.reply(createShopMenu());
             if (interaction.commandName === 'admin_room') return await interaction.reply(getAdminPanel());
             if (interaction.commandName === 'addproduct') return await interaction.showModal(buildAddProductModal());
-
-            if (interaction.commandName === 'deleteproduct') {
-                const products = getProducts();
-                if (products.length === 0) return interaction.reply({ content: "❌ ยังไม่มีสินค้าในระบบให้ลบ", ephemeral: true });
-                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_delete_product').setPlaceholder('ถังขยะ: เลือกสินค้าที่ต้องการลบถาวร');
-                products.forEach(prod => { selectMenu.addOptions({ label: `🗑️ ${prod.name}`, description: `ลบสินค้านี้ออกจากระบบ | ราคา: ${prod.price} บาท`, value: prod.id }); });
-                return await interaction.reply({ content: "⚠️ **โปรดเลือกสินค้าที่คุณต้องการลบทิ้งถาวร:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
-            }
-
-            if (interaction.commandName === 'addstock' || interaction.commandName === 'removestock') {
-                const products = getProducts();
-                if (products.length === 0) return interaction.reply({ content: "❌ ยังไม่มีสินค้าในระบบ", ephemeral: true });
-                const actionType = interaction.commandName === 'addstock' ? "add" : "remove";
-                const selectMenu = new StringSelectMenuBuilder().setCustomId(`stock_action_${actionType}`).setPlaceholder('เลือกสินค้าที่ต้องการปรับสต็อก');
-                products.forEach(prod => {
-                    selectMenu.addOptions({ label: prod.name, description: `สต็อกปัจจุบัน: ${prod.stock || 0} ชิ้น`, value: prod.id });
-                });
-                return await interaction.reply({ content: `📦 **โปรดเลือกสินค้าที่ต้องการ${actionType === 'add' ? 'เพิ่ม' : 'ลด'}สต็อก:**`, components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
-            }
-
-            if (interaction.commandName === 'checkstock') {
-                const products = getProducts();
-                const purchases = getPurchases();
-                let desc = "📋 **รายงานสถานะสินค้าทั้งหมด:**\n\n";
-
-                if (products.length === 0) {
-                    desc += "ยังไม่มีสินค้าในระบบ";
-                } else {
-                    products.forEach((p, index) => {
-                        let stockCount = p.stock || 0;
-                        let totalSold = 0;
-                        Object.values(purchases).forEach(userPurchases => {
-                            if (Array.isArray(userPurchases)) {
-                                userPurchases.forEach(up => { if (up.productName === p.name) totalSold++; });
-                            }
-                        });
-                        let stockStatus = stockCount > 0 ? `📦 คงเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
-                        desc += `**${index + 1}. ${p.name}**\n${stockStatus} | 🛒 ขายไปแล้ว: **${totalSold} ชิ้น** | 💵 ${p.price} บาท\n-----------------------------------\n`;
-                    });
-                }
-                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Gold").setTitle("📊 ตรวจสอบสต็อกและสินค้า").setDescription(desc)], ephemeral: true });
-            }
-
-            if (interaction.commandName === 'addmoney' || interaction.commandName === 'removemoney') {
-                const targetUser = interaction.options.getUser('user');
-                const amount = interaction.options.getInteger('amount');
-                if (amount <= 0) return interaction.reply({ content: "❌ กรุณากรอกจำนวนเงินให้มากกว่า 0", ephemeral: true });
-
-                const balances = getBalances();
-                if (!balances[targetUser.id]) balances[targetUser.id] = 0;
-
-                if (interaction.commandName === 'addmoney') balances[targetUser.id] += amount;
-                else balances[targetUser.id] = Math.max(0, balances[targetUser.id] - amount);
-                saveBalances(balances);
-
-                return await interaction.reply({ content: `✅ **${interaction.commandName === 'addmoney' ? 'เพิ่ม' : 'หัก'}เงิน** จำนวน **${amount} บาท** ให้กับ <@${targetUser.id}> สำเร็จ\n💰 ยอดคงเหลือ: **${balances[targetUser.id]} บาท**`, ephemeral: true });
-            }
-
-            if (interaction.commandName === 'checkmoney') {
-                const targetUser = interaction.options.getUser('user');
-                const balances = getBalances();
-                return await interaction.reply({ content: `💳 ยอดเงินของ <@${targetUser.id}> คือ **${balances[targetUser.id] || 0} บาท**`, ephemeral: true });
-            }
-
-            if (interaction.commandName === 'checkuser') {
-                const targetUser = interaction.options.getUser('user');
-                const balances = getBalances();
-                const purchases = getPurchases();
-
-                const userBalance = balances[targetUser.id] || 0;
-                const userPurchases = purchases[targetUser.id] || [];
-                let purchaseHistory = userPurchases.length > 0 ? userPurchases.map(p => `• **${p.productName}** (${p.price} บาท)`).join('\n') : "ยังไม่มีประวัติการซื้อ";
-
-                const embed = new EmbedBuilder().setColor("Purple").setTitle(`🔍 ข้อมูลผู้ใช้: ${targetUser.tag}`).addFields(
-                    { name: "💳 ยอดเงินคงเหลือ", value: `${userBalance} บาท`, inline: true },
-                    { name: "🛒 ประวัติการซื้อสินค้า", value: purchaseHistory, inline: false }
-                );
-                return await interaction.reply({ embeds: [embed], ephemeral: true });
-            }
-
-            if (interaction.commandName === 'giveaway_money' || interaction.commandName === 'giveaway_program') {
-                const isMoney = interaction.commandName === 'giveaway_money';
-                const title = interaction.options.getString('title');
-                const durationMinutes = interaction.options.getInteger('duration');
-                const maxClaims = interaction.options.getInteger('max_claims');
-                const description = interaction.options.getString('description') || "กดปุ่มด้านล่างเพื่อรับของขวัญฟรีได้เลย!";
-                const imageUrl = interaction.options.getString('image_url');
-
-                const rewardValue = isMoney ? interaction.options.getInteger('amount') : interaction.options.getString('link_code');
-
-                if (durationMinutes <= 0 || maxClaims <= 0) {
-                    return interaction.reply({ content: "❌ ระยะเวลาและจำนวนสิทธิ์ต้องมากกว่า 0 ครับ", ephemeral: true });
-                }
-
-                const giveawayId = `gw_${Date.now()}`;
-                const endsAt = Date.now() + (durationMinutes * 60 * 1000);
-                const endsAtUnix = Math.floor(endsAt / 1000);
-
-                const embed = new EmbedBuilder()
-                    .setTitle(isMoney ? `🎉 [แจกเงินฟรี] ${title}` : `🎁 [แจกโปรแกรมฟรี] ${title}`)
-                    .setDescription(`${description}\n\n🎁 **รางวัลที่ได้รับ:** ${isMoney ? `**${rewardValue} บาท**` : 'โปรแกรม / สคริปต์ฟรี'}\n👥 **จำกัดคนรับ:** **0/${maxClaims} คน**\n⏰ **หมดเวลาใน:** <t:${endsAtUnix}:R> (<t:${endsAtUnix}:f>)`)
-                    .setColor(isMoney ? "Gold" : "LuminousVividPink")
-                    .setTimestamp();
-
-                if (imageUrl && imageUrl.trim() !== "") embed.setImage(imageUrl);
-
-                const claimBtn = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`claim_gw_${giveawayId}`)
-                        .setLabel('🎁 กดรับรางวัล')
-                        .setStyle(ButtonStyle.Success)
-                );
-
-                const msg = await interaction.reply({ embeds: [embed], components: [claimBtn], fetchReply: true });
-
-                const giveaways = getGiveaways();
-                giveaways[giveawayId] = {
-                    id: giveawayId,
-                    type: isMoney ? 'money' : 'program',
-                    title: title,
-                    reward: rewardValue,
-                    maxClaims: maxClaims,
-                    claimedUsers: [],
-                    endsAt: endsAt,
-                    messageId: msg.id,
-                    channelId: msg.channelId,
-                    ended: false,
-                    imageUrl: imageUrl || "",
-                    description: description
-                };
-                saveGiveaways(giveaways);
-                return;
-            }
         }
 
-        // --- 2. Buttons ---
         if (interaction.isButton()) {
 
-            // 🛑 ปุ่มยกเลิกรายการเติมเงิน
+            // 📸 ปุ่มกดเริ่มแนบสลิปโอนเงิน
+            if (interaction.customId.startsWith('upload_slip_')) {
+                const topupId = interaction.customId.replace('upload_slip_', '');
+                const topup = getTopups()[topupId];
+
+                if (!topup || topup.status === 'expired' || topup.status === 'cancelled') {
+                    return interaction.reply({ content: "❌ รายการนี้หมดอายุหรือถูกยกเลิกไปแล้ว กรุณากดเติมเงินใหม่ครับ", ephemeral: true });
+                }
+
+                awaitingSlipUsers.set(interaction.user.id, {
+                    topupId: topupId,
+                    channelId: interaction.channelId,
+                    expiresAt: Date.now() + (3 * 60 * 1000) // รอสลิป 3 นาที
+                });
+
+                return await interaction.reply({
+                    content: `📥 **กรุณาส่ง/แนบรูปภาพสลิปของคุณลงในช่องแชทนี้ได้เลยครับ!**\n*(ระบบกำลังรอรับรูปสลิปจากคุณเป็นเวลา 3 นาที...)*`,
+                    ephemeral: true
+                });
+            }
+
+            // ❌ ปุ่มยกเลิกรายการ
             if (interaction.customId.startsWith('cancel_topup_')) {
                 const topupId = interaction.customId.replace('cancel_topup_', '');
                 await queueDbWrite(async () => {
                     const topups = getTopups();
                     if (topups[topupId]) {
                         topups[topupId].status = 'cancelled';
-                        topups[topupId].cancelledAt = new Date().toISOString();
                         saveTopups(topups);
                     }
                 });
-
-                return await interaction.reply({
-                    content: `🗑️ **ยกเลิกรายการเติมเงิน \`${topupId}\` เรียบร้อยแล้ว!** คุณสามารถกดเติมเงินเพื่อทำรายการใหม่ได้ทันทีครับ`,
-                    ephemeral: true
-                });
-            }
-
-            if (interaction.customId.startsWith('claim_gw_')) {
-                const giveawayId = interaction.customId.replace('claim_gw_', '');
-                const giveaways = getGiveaways();
-                const gw = giveaways[giveawayId];
-
-                if (!gw) return interaction.reply({ content: "❌ กิจกรรมนี้สิ้นสุดหรือถูกลบไปแล้ว", ephemeral: true });
-
-                if (Date.now() > gw.endsAt || gw.ended) {
-                    gw.ended = true;
-                    saveGiveaways(giveaways);
-                    return interaction.reply({ content: "❌ กิจกรรมนี้หมดเวลาการรับแล้วครับ!", ephemeral: true });
-                }
-
-                if (gw.claimedUsers.includes(interaction.user.id)) {
-                    return interaction.reply({ content: "❌ คุณเคยรับของขวัญชิ้นนี้ไปแล้วครับ!", ephemeral: true });
-                }
-
-                if (gw.claimedUsers.length >= gw.maxClaims) {
-                    return interaction.reply({ content: "❌ สิทธิ์ถูกรับไปครบเต็มจำนวนแล้วครับ!", ephemeral: true });
-                }
-
-                gw.claimedUsers.push(interaction.user.id);
-
-                let replyMsg = "";
-                if (gw.type === 'money') {
-                    const balances = getBalances();
-                    if (!balances[interaction.user.id]) balances[interaction.user.id] = 0;
-                    balances[interaction.user.id] += parseInt(gw.reward);
-                    saveBalances(balances);
-                    replyMsg = `✅ **ยินดีด้วยครับ!** คุณได้รับเงินจำนวน **${gw.reward} บาท** เข้าสู่ระบบเรียบร้อยแล้ว! 💰\n💳 ยอดเงินคงเหลือปัจจุบัน: **${balances[interaction.user.id]} บาท**`;
-                } else {
-                    replyMsg = `✅ **ยินดีด้วยครับ!** คุณได้รับโปรแกรม/สคริปต์เรียบร้อยแล้ว!\n\n🔗 **ลิงก์ดาวน์โหลด / รายละเอียด:**\n${gw.reward}`;
-                }
-
-                const isFull = gw.claimedUsers.length >= gw.maxClaims;
-                if (isFull) gw.ended = true;
-
-                saveGiveaways(giveaways);
-
-                try {
-                    const endsAtUnix = Math.floor(gw.endsAt / 1000);
-                    const updatedEmbed = new EmbedBuilder()
-                        .setTitle(gw.type === 'money' ? `🎉 [แจกเงินฟรี] ${gw.title}` : `🎁 [แจกโปรแกรมฟรี] ${gw.title}`)
-                        .setDescription(`${gw.description}\n\n🎁 **รางวัลที่ได้รับ:** ${gw.type === 'money' ? `**${gw.reward} บาท**` : 'โปรแกรม / สคริปต์ฟรี'}\n👥 **จำกัดคนรับ:** **${gw.claimedUsers.length}/${gw.maxClaims} คน** ${isFull ? '🔴 **(คนรับเต็มแล้ว)**' : ''}\n⏰ **หมดเวลาใน:** <t:${endsAtUnix}:R>`)
-                        .setColor(isFull ? "Grey" : (gw.type === 'money' ? "Gold" : "LuminousVividPink"))
-                        .setTimestamp();
-
-                    if (gw.imageUrl && gw.imageUrl.trim() !== "") updatedEmbed.setImage(gw.imageUrl);
-
-                    const updatedBtn = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`claim_gw_${gw.id}`)
-                            .setLabel(isFull ? '🔒 คนรับเต็มแล้ว' : '🎁 กดรับรางวัล')
-                            .setStyle(isFull ? ButtonStyle.Secondary : ButtonStyle.Success)
-                            .setDisabled(isFull)
-                    );
-
-                    await interaction.message.edit({ embeds: [updatedEmbed], components: [updatedBtn] });
-                } catch (err) {
-                    console.log("ไม่สามารถอัปเดต Embed ข้อความได้:", err);
-                }
-
-                return interaction.reply({ content: replyMsg, ephemeral: true });
+                awaitingSlipUsers.delete(interaction.user.id);
+                return await interaction.reply({ content: `🗑️ ยกเลิกรายการ \`${topupId}\` เรียบร้อยแล้ว`, ephemeral: true });
             }
 
             if (interaction.customId === "topup_menu") {
                 const modal = new ModalBuilder().setCustomId('topup_modal').setTitle('เติมเงินด้วยซองอั่งเปา TrueMoney');
-                const codeInput = new TextInputBuilder().setCustomId('codeInput').setLabel("ใส่ลิ้งค์ซองอังเปาที่นี่").setPlaceholder('https://gift.truemoney.com/campaign/?v=...').setStyle(TextInputStyle.Short).setRequired(true);
+                const codeInput = new TextInputBuilder().setCustomId('codeInput').setLabel("ใส่ลิ้งค์ซองอังเปาที่นี่").setStyle(TextInputStyle.Short).setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(codeInput));
                 return await interaction.showModal(modal);
             }
@@ -657,80 +553,46 @@ client.on("interactionCreate", async (interaction) => {
                 const now = Date.now();
                 const timeoutMs = BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000;
 
-                // ตรวจสอบและยกเลิกรายการที่หมดอายุโดยอัตโนมัติ
-                let hasChanges = false;
+                // เคลียร์รายการหมดอายุ
                 Object.values(topups).forEach(t => {
                     if (['awaiting_slip', 'pending'].includes(t.status)) {
-                        const createdAt = new Date(t.createdAt).getTime();
-                        if (now - createdAt > timeoutMs) {
+                        if (now - new Date(t.createdAt).getTime() > timeoutMs) {
                             t.status = 'expired';
-                            t.expiredAt = new Date().toISOString();
-                            hasChanges = true;
                         }
                     }
                 });
-                if (hasChanges) saveTopups(topups);
+                saveTopups(topups);
 
-                // ค้นหารายการค้างที่ยังไม่หมดอายุ
                 const existing = Object.values(topups).find(t =>
                     t.userId === interaction.user.id && ['awaiting_slip', 'pending'].includes(t.status)
                 );
 
                 if (existing) {
-                    const cancelRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`cancel_topup_${existing.id}`)
-                            .setLabel('❌ ยกเลิกรายการนี้เพื่อทำใหม่')
-                            .setStyle(ButtonStyle.Danger)
+                    const actionRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder().setCustomId(`upload_slip_${existing.id}`).setLabel('📸 แนบรูปสลิปยืนยัน').setStyle(ButtonStyle.Success),
+                        new ButtonBuilder().setCustomId(`cancel_topup_${existing.id}`).setLabel('❌ ยกเลิกรายการนี้').setStyle(ButtonStyle.Danger)
                     );
-
-                    const createdAtMs = new Date(existing.createdAt).getTime();
-                    const expireTimeUnix = Math.floor((createdAtMs + timeoutMs) / 1000);
 
                     return interaction.reply({
                         embeds: [new EmbedBuilder()
                             .setColor("Orange")
                             .setTitle("⏳ มีรายการเติมเงินที่ยังทำไม่เสร็จ")
-                            .setDescription(
-                                `คุณมีรายการเติมเงินค้างอยู่อยู่แล้วครับ\n\n` +
-                                `🧾 **รหัสรายการ:** \`${existing.id}\`\n` +
-                                `💰 **จำนวนเงิน:** **${existing.amount.toFixed(2)} บาท**\n` +
-                                `⏰ **จะหมดอายุใน:** <t:${expireTimeUnix}:R>\n\n` +
-                                `หากต้องการโอนยอดใหม่ หรือเปลี่ยนใจ ให้กดปุ่ม **"ยกเลิกรายการนี้"** ด้านล่างได้เลยครับ`
-                            )],
-                        components: [cancelRow],
+                            .setDescription(`🧾 รหัสรายการ: \`${existing.id}\`\n💰 ยอดที่ต้องโอน: **${existing.amount.toFixed(2)} บาท**`)
+                        ],
+                        components: [actionRow],
                         ephemeral: true
                     });
                 }
 
-                const modal = new ModalBuilder()
-                    .setCustomId('bank_topup_modal')
-                    .setTitle('🏦 เติมเงินผ่าน QR / PromptPay / ธนาคาร');
-
-                const amountInput = new TextInputBuilder()
-                    .setCustomId('bank_amount')
-                    .setLabel("จำนวนเงินที่โอน (บาท)")
-                    .setPlaceholder("เช่น 100")
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-
-                const refInput = new TextInputBuilder()
-                    .setCustomId('bank_ref')
-                    .setLabel("เลขอ้างอิงจากสลิป (ถ้ามี)")
-                    .setPlaceholder("เช่น 123456789")
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(false);
-
-                modal.addComponents(
-                    new ActionRowBuilder().addComponents(amountInput),
-                    new ActionRowBuilder().addComponents(refInput)
-                );
+                const modal = new ModalBuilder().setCustomId('bank_topup_modal').setTitle('🏦 เติมเงินผ่าน QR / PromptPay / ธนาคาร');
+                const amountInput = new TextInputBuilder().setCustomId('bank_amount').setLabel("จำนวนเงินที่โอน (บาท)").setPlaceholder("เช่น 100").setStyle(TextInputStyle.Short).setRequired(true);
+                modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
                 return await interaction.showModal(modal);
             }
 
             if (interaction.customId === "check_balance") {
                 const balances = getBalances();
-                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Blurple").setTitle("💳 ยอดเงินคงเหลือของคุณ").setDescription(`บัญชีของคุณ: <@${interaction.user.id}>\n💰 ยอดเงินสะสม: **${balances[interaction.user.id] || 0} บาท**`)], ephemeral: true });
+                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Blurple").setTitle("💳 ยอดเงินคงเหลือ").setDescription(`💰 ยอดคงเหลือ: **${balances[interaction.user.id] || 0} บาท**`)], ephemeral: true });
             }
 
             if (interaction.customId === "buy_menu") {
@@ -740,664 +602,137 @@ client.on("interactionCreate", async (interaction) => {
                 const selectMenu = new StringSelectMenuBuilder().setCustomId('select_product').setPlaceholder('เลือกสินค้าที่คุณต้องการซื้อ');
                 products.forEach(prod => {
                     let stockCount = prod.stock || 0;
-                    let stockLabel = stockCount > 0 ? ` (เหลือ ${stockCount} ชิ้น)` : " (สินค้าหมด)";
-                    selectMenu.addOptions({ label: prod.name + stockLabel, description: `ราคา ${prod.price} บาท | สต็อก: ${stockCount} ชิ้น`, value: prod.id });
+                    selectMenu.addOptions({ label: `${prod.name} (เหลือ ${stockCount} ชิ้น)`, description: `ราคา ${prod.price} บาท`, value: prod.id });
                 });
 
-                return await interaction.reply({ content: "🛒 **โปรดเลือกสินค้าที่คุณต้องการซื้อจากรายการด้านล่าง:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
-            }
-
-            if (interaction.customId === "view_prices") {
-                const products = getProducts();
-                let desc = "📋 **รายการสินค้าทั้งหมดที่มีจำหน่าย:**\n\n";
-                if (products.length === 0) {
-                    desc += "ยังไม่มีรายการสินค้า";
-                } else {
-                    products.forEach((p, index) => {
-                        let stockCount = p.stock || 0;
-                        let stockDisplay = stockCount > 0 ? `📦 สต็อกเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
-                        let roleDisplay = (p.roleId && p.roleId !== "") ? `<@&${p.roleId}>` : "ไม่มี";
-                        let descriptionText = (p.description && p.description.trim() !== "") ? `\n📝 **รายละเอียด:** ${p.description}` : "";
-                        desc += `**${index + 1}. ${p.name}**\n💵 ราคา: **${p.price} บาท** | ${stockDisplay}${descriptionText}\n🏷️ ยศที่จะได้รับ: ${roleDisplay}\n-----------------------------------\n`;
-                    });
-                }
-                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("💰 รายการสินค้าและราคา").setDescription(desc)], ephemeral: true });
-            }
-
-            if (interaction.customId === "contact_admin") {
-                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Orange").setTitle("🎫 ต้องการความช่วยเหลือ?").setDescription(`คุณสามารถติดต่อแอดมินหรือเปิดทิกเก็ตได้ที่ห้องนี้เลยครับ: <#${config.ticketChannelId}>`)], ephemeral: true });
-            }
-
-            if (interaction.customId === "adm_prod_add") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                return await interaction.showModal(buildAddProductModal());
-            }
-
-            if (interaction.customId === "adm_prod_del") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                const products = getProducts();
-                if (products.length === 0) return interaction.reply({ content: "❌ ยังไม่มีสินค้าในระบบให้ลบ", ephemeral: true });
-
-                const selectMenu = new StringSelectMenuBuilder().setCustomId('select_delete_product').setPlaceholder('ถังขยะ: เลือกสินค้าที่ต้องการลบถาวร');
-                products.forEach(prod => { selectMenu.addOptions({ label: `🗑️ ${prod.name}`, description: `ลบสินค้านี้ออกจากระบบ | ราคา: ${prod.price} บาท`, value: prod.id }); });
-                return await interaction.reply({ content: "⚠️ **โปรดเลือกสินค้าที่คุณต้องการลบทิ้งถาวร:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
-            }
-
-            if (interaction.customId === "adm_stock_add" || interaction.customId === "adm_stock_remove") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                const products = getProducts();
-                if (products.length === 0) return interaction.reply({ content: "❌ ยังไม่มีสินค้าในระบบ", ephemeral: true });
-
-                const actionType = interaction.customId === "adm_stock_add" ? "add" : "remove";
-                const selectMenu = new StringSelectMenuBuilder().setCustomId(`stock_action_${actionType}`).setPlaceholder('เลือกสินค้าที่ต้องการปรับสต็อก');
-                products.forEach(prod => { selectMenu.addOptions({ label: prod.name, description: `สต็อกปัจจุบัน: ${prod.stock || 0} ชิ้น`, value: prod.id }); });
-                return await interaction.reply({ content: `📦 **โปรดเลือกสินค้าที่ต้องการ${actionType === 'add' ? 'เพิ่ม' : 'ลด'}สต็อก:**`, components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
-            }
-
-            if (interaction.customId === "adm_stock_check") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                const products = getProducts();
-                const purchases = getPurchases();
-                let desc = "📋 **รายงานสถานะสินค้าทั้งหมด:**\n\n";
-
-                if (products.length === 0) {
-                    desc += "ยังไม่มีสินค้าในระบบ";
-                } else {
-                    products.forEach((p, index) => {
-                        let stockCount = p.stock || 0;
-                        let totalSold = 0;
-                        Object.values(purchases).forEach(userPurchases => {
-                            if (Array.isArray(userPurchases)) {
-                                userPurchases.forEach(up => { if (up.productName === p.name) totalSold++; });
-                            }
-                        });
-                        let stockStatus = stockCount > 0 ? `📦 คงเหลือ: **${stockCount} ชิ้น**` : "❌ **สินค้าหมดสต็อก**";
-                        desc += `**${index + 1}. ${p.name}**\n${stockStatus} | 🛒 ขายไปแล้ว: **${totalSold} ชิ้น** | 💵 ${p.price} บาท\n-----------------------------------\n`;
-                    });
-                }
-                return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Gold").setTitle("📊 ตรวจสอบสต็อกและสินค้า").setDescription(desc)], ephemeral: true });
-            }
-
-            if (interaction.customId === "adm_money_manage") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                const row = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder().setCustomId('money_btn_add').setLabel('💰 เพิ่มเงินลูกค้า').setStyle(ButtonStyle.Success),
-                    new ButtonBuilder().setCustomId('money_btn_remove').setLabel('💸 หักเงินลูกค้า').setStyle(ButtonStyle.Danger)
-                );
-                return await interaction.reply({ content: "💳 **จัดการยอดเงินผ่านปุ่มลัด (กรอก ID):**", components: [row], ephemeral: true });
-            }
-
-            if (interaction.customId === "money_btn_add" || interaction.customId === "money_btn_remove") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                const action = interaction.customId === "money_btn_add" ? "add" : "remove";
-                const modal = new ModalBuilder().setCustomId(`money_modal_${action}`).setTitle(action === 'add' ? '💰 เพิ่มเงิน' : '💸 หักเงิน');
-                const userIdInput = new TextInputBuilder().setCustomId('target_userid').setLabel("Discord ID ลูกค้า").setStyle(TextInputStyle.Short).setRequired(true);
-                const amountInput = new TextInputBuilder().setCustomId('money_amount').setLabel("จำนวนเงิน").setStyle(TextInputStyle.Short).setRequired(true);
-                modal.addComponents(new ActionRowBuilder().addComponents(userIdInput), new ActionRowBuilder().addComponents(amountInput));
-                return await interaction.showModal(modal);
-            }
-
-            if (interaction.customId === "adm_user_check") {
-                if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
-                const modal = new ModalBuilder().setCustomId('user_check_modal').setTitle('🔍 ตรวจสอบผู้ใช้ผ่าน ID');
-                const userIdInput = new TextInputBuilder().setCustomId('check_userid').setLabel("Discord ID ลูกค้า").setStyle(TextInputStyle.Short).setRequired(true);
-                modal.addComponents(new ActionRowBuilder().addComponents(userIdInput));
-                return await interaction.showModal(modal);
+                return await interaction.reply({ content: "🛒 **โปรดเลือกสินค้าที่ต้องการซื้อ:**", components: [new ActionRowBuilder().addComponents(selectMenu)], ephemeral: true });
             }
         }
 
-        // --- 3. Select Menus ---
+        // --- Select Menus & Modals ---
         if (interaction.isStringSelectMenu()) {
-            
             if (interaction.customId === 'select_product') {
                 const products = getProducts();
-                const productId = interaction.values[0];
-                const product = products.find(p => p.id === productId);
+                const product = products.find(p => p.id === interaction.values[0]);
 
-                if (!product) return interaction.update({ content: "❌ ไม่พบสินค้านี้ในระบบ", components: [] });
-
-                const currentStock = product.stock || 0;
-                if (currentStock <= 0) return interaction.update({ content: `❌ สินค้า **${product.name}** หมดสต็อก!`, components: [], ephemeral: true });
+                if (!product || (product.stock || 0) <= 0) return interaction.update({ content: "❌ สินค้าหมดสต็อก", components: [] });
 
                 const balances = getBalances();
                 const userBalance = balances[interaction.user.id] || 0;
+                if (userBalance < product.price) return interaction.update({ content: `❌ เงินไม่พอซื้อ (ต้องการ ${product.price} บาท | มีอยู่ ${userBalance} บาท)`, components: [] });
 
-                if (userBalance < product.price) {
-                    return interaction.update({ content: `❌ เงินไม่พอซื้อ **${product.name}**\n💰 เงินของคุณ: **${userBalance} บาท** | ต้องการ: **${product.price} บาท**`, components: [], ephemeral: true });
-                }
-
-                const purchaseLockKey = `${interaction.user.id}:${product.id}`;
-                if (purchaseLocks.has(purchaseLockKey)) {
-                    return interaction.update({ content: "⏳ กำลังประมวลผลรายการก่อนหน้า กรุณารอสักครู่", components: [], ephemeral: true });
-                }
-                purchaseLocks.add(purchaseLockKey);
-
-                try {
-                    const latestProducts = getProducts();
-                    const latestProduct = latestProducts.find(p => p.id === product.id);
-                    if (!latestProduct || (latestProduct.stock || 0) <= 0) {
-                        return interaction.update({ content: "❌ สินค้าหมดหรือถูกซื้อไปแล้ว กรุณาลองใหม่", components: [], ephemeral: true });
-                    }
-
-                    const latestBalances = getBalances();
-                    const latestBalance = latestBalances[interaction.user.id] || 0;
-                    if (latestBalance < latestProduct.price) {
-                        return interaction.update({ content: `❌ เงินไม่พอซื้อ **${latestProduct.name}**\n💰 เงินของคุณ: **${latestBalance} บาท** | ต้องการ: **${latestProduct.price} บาท**`, components: [], ephemeral: true });
-                    }
-
-                    latestBalances[interaction.user.id] = latestBalance - latestProduct.price;
-                    latestProduct.stock = (latestProduct.stock || 0) - 1;
-                    saveBalances(latestBalances);
-                    saveProducts(latestProducts);
-
-                    const purchases = getPurchases();
-                    if (!purchases[interaction.user.id]) purchases[interaction.user.id] = [];
-                    purchases[interaction.user.id].push({ productName: latestProduct.name, price: latestProduct.price, date: new Date().toISOString() });
-                    savePurchases(purchases);
-
-                    balances[interaction.user.id] = latestBalances[interaction.user.id];
-                    product.name = latestProduct.name;
-                    product.price = latestProduct.price;
-                    product.stock = latestProduct.stock;
-                } finally {
-                    purchaseLocks.delete(purchaseLockKey);
-                }
-
-                let roleStatusText = "";
-                if (product.roleId && product.roleId !== "") {
-                    try {
-                        const member = await interaction.guild.members.fetch(interaction.user.id);
-                        await member.roles.add(product.roleId);
-                        roleStatusText = "\n🏷️ **ได้รับยศสำเร็จ!**";
-                    } catch (err) {
-                        roleStatusText = "\n⚠️ ซื้อสำเร็จ แต่ระบบมอบยศไม่ผ่าน (ตรวจสอบสิทธิ์บอท)";
-                    }
-                }
+                balances[interaction.user.id] -= product.price;
+                product.stock -= 1;
+                saveBalances(balances);
+                saveProducts(products);
 
                 const downloadLink = (product.gofileUrl && product.gofileUrl.trim() !== "") ? `[คลิกเพื่อดาวน์โหลด](${product.gofileUrl})` : "ไม่มีไฟล์ให้ดาวน์โหลด";
-                const descDetails = (product.description && product.description.trim() !== "") ? `\n📝 **รายละเอียด:** ${product.description}` : "";
-
-                const successEmbed = new EmbedBuilder()
-                    .setColor("Green")
-                    .setTitle("✅ สั่งซื้อสินค้าสำเร็จ!")
-                    .setDescription(`คุณได้ซื้อ **${product.name}** เรียบร้อยแล้ว${roleStatusText}${descDetails}`)
-                    .addFields(
-                        { name: "🔗 ลิงก์สินค้า", value: downloadLink, inline: false },
-                        { name: "💳 ยอดเงินคงเหลือ", value: `${balances[interaction.user.id]} บาท`, inline: false }
-                    );
-
-                if (product.previewImage && product.previewImage.trim() !== "") {
-                    successEmbed.setImage(product.previewImage);
-                }
-
-                await interaction.update({ content: null, embeds: [successEmbed], components: [], ephemeral: true });
-
-                const logChannel = interaction.guild.channels.cache.get(config.channellog);
-                if (logChannel) {
-                    logChannel.send({ embeds: [new EmbedBuilder().setTitle("🛒 มีออเดอร์ใหม่").setDescription(`ผู้ซื้อ: <@${interaction.user.id}>\nสินค้า: **${product.name}**\nราคา: **${product.price} บาท**\n📦 สต็อกคงเหลือ: **${product.stock} ชิ้น**`).setColor("Green").setTimestamp()] });
-                }
-            }
-
-            if (interaction.customId === 'select_delete_product') {
-                let products = getProducts();
-                const productId = interaction.values[0];
-                const prodIndex = products.findIndex(p => p.id === productId);
-
-                if (prodIndex > -1) {
-                    const deletedName = products[prodIndex].name;
-                    products.splice(prodIndex, 1);
-                    saveProducts(products);
-                    await interaction.update({ content: `✅ ลบสินค้า **${deletedName}** ออกจากร้านค้าถาวรแล้ว`, components: [], ephemeral: true });
-                } else {
-                    await interaction.update({ content: `❌ เกิดข้อผิดพลาด ไม่พบสินค้านี้`, components: [], ephemeral: true });
-                }
-            }
-
-            if (interaction.customId === 'stock_action_add' || interaction.customId === 'stock_action_remove') {
-                const productId = interaction.values[0];
-                const action = interaction.customId.includes('add') ? 'add' : 'remove';
-
-                const modal = new ModalBuilder().setCustomId(`stock_modal_${action}_${productId}`).setTitle(`📦 จำนวนสต็อกที่ต้องการ${action === 'add' ? 'เพิ่ม' : 'ลด'}`);
-                const amountInput = new TextInputBuilder().setCustomId('stock_amount').setLabel("ใส่จำนวนตัวเลข").setStyle(TextInputStyle.Short).setRequired(true);
-                modal.addComponents(new ActionRowBuilder().addComponents(amountInput));
-                return await interaction.showModal(modal);
+                return await interaction.update({
+                    content: null,
+                    embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ สั่งซื้อสำเร็จ!").setDescription(`คุณได้ซื้อ **${product.name}** เรียบร้อยแล้ว\n🔗 **ลิงก์สินค้า:** ${downloadLink}\n💳 **ยอดคงเหลือ:** ${balances[interaction.user.id]} บาท`)],
+                    components: [],
+                    ephemeral: true
+                });
             }
         }
 
-        // --- 4. Modal Submissions ---
         if (interaction.isModalSubmit()) {
-            
-            if (interaction.customId === "topup_modal") {
-                const codeInput = interaction.fields.getTextInputValue('codeInput');
-                await interaction.deferReply({ ephemeral: true }); 
-
-                if (!codeInput.includes("gift.truemoney.com")) return await interaction.editReply({ embeds: [new EmbedBuilder().setColor("Red").setDescription('❌ เติมเงินไม่สำเร็จ: ลิ้งค์ซองไม่ถูกต้อง')] });
-
-                tw(config.phone, codeInput).then(async (re) => {
-                    const balances = getBalances();
-                    if (!balances[interaction.user.id]) balances[interaction.user.id] = 0;
-                    balances[interaction.user.id] += re.amount;
-                    saveBalances(balances);
-
-                    await interaction.editReply({ embeds: [new EmbedBuilder().setColor("Green").setTitle("✅ เติมเงินสำเร็จ!").setDescription(`ได้รับเงิน **${re.amount} บาท**\n💰 ยอดสะสม: **${balances[interaction.user.id]} บาท**`)] });
-
-                    const logChannel = interaction.guild.channels.cache.get(config.channellog);
-                    if (logChannel) logChannel.send({ embeds: [new EmbedBuilder().setTitle("💸 ประวัติการเติมเงิน").setDescription(`ผู้เติม: <@${interaction.user.id}>\nจำนวน: **${re.amount} บาท**`).setColor("Green").setTimestamp()] });
-                }).catch(async () => {
-                    await interaction.editReply({ embeds: [new EmbedBuilder().setColor("Red").setDescription("❌ เติมเงินไม่ผ่าน: ลิงก์ผิด, มีคนใช้แล้ว หรือหมดอายุ")] });
-                });
-            }
-
             if (interaction.customId === "bank_topup_modal") {
                 const amount = normalizeMoney(interaction.fields.getTextInputValue('bank_amount'));
-                const ref = (interaction.fields.getTextInputValue('bank_ref') || '').trim();
-
-                if (!amount) {
-                    return interaction.reply({ content: "❌ จำนวนเงินไม่ถูกต้อง กรุณากรอกเป็นตัวเลข เช่น 100", ephemeral: true });
-                }
+                if (!amount) return interaction.reply({ content: "❌ กรุณากรอกจำนวนเงินเป็นตัวเลข", ephemeral: true });
 
                 const topupId = makeTopupId(interaction.user.id);
+                const topups = getTopups();
 
-                const result = await queueDbWrite(async () => {
-                    const topups = getTopups();
-                    const existing = Object.values(topups).find(t =>
-                        t.userId === interaction.user.id && ['awaiting_slip', 'pending'].includes(t.status)
-                    );
-                    if (existing) return { error: existing };
+                topups[topupId] = {
+                    id: topupId,
+                    userId: interaction.user.id,
+                    amount,
+                    status: 'awaiting_slip',
+                    createdAt: new Date().toISOString()
+                };
+                saveTopups(topups);
 
-                    topups[topupId] = {
-                        id: topupId,
-                        userId: interaction.user.id,
-                        amount,
-                        reference: ref,
-                        status: 'awaiting_slip',
-                        createdAt: new Date().toISOString(),
-                        slipMessageId: null,
-                        slipUrl: null,
-                        approvedBy: null,
-                        approvedAt: null
-                    };
-                    saveTopups(topups);
-                    return { topup: topups[topupId] };
-                });
-
-                if (result.error) {
-                    const cancelRow = new ActionRowBuilder().addComponents(
-                        new ButtonBuilder()
-                            .setCustomId(`cancel_topup_${result.error.id}`)
-                            .setLabel('❌ ยกเลิกรายการนี้เพื่อทำใหม่')
-                            .setStyle(ButtonStyle.Danger)
-                    );
-
-                    return interaction.reply({
-                        content: `⏳ คุณมีรายการเติมเงินค้างอยู่แล้ว: **${result.error.id}**\nกรุณาส่งสลิปของรายการเดิม หรือกดปุ่มยกเลิกรายการ`,
-                        components: [cancelRow],
-                        ephemeral: true
-                    });
-                }
-
-                const topup = result.topup;
-                const bankInfo = getBankTopupDescription();
                 let qrBuffer = null;
-                try {
-                    qrBuffer = await createPromptPayQrBuffer(topup.amount);
-                } catch (qrErr) {
-                    console.error("PromptPay QR error:", qrErr);
-                }
+                try { qrBuffer = await createPromptPayQrBuffer(amount); } catch (e) {}
 
                 const expireUnix = Math.floor((Date.now() + (BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000)) / 1000);
 
                 const embed = new EmbedBuilder()
                     .setColor("Blue")
-                    .setTitle("🏦 เติมเงินผ่าน PromptPay / ธนาคาร")
+                    .setTitle("🏦 รายละเอียดการโอนเงิน")
                     .setDescription(
-                        `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
-                        `💰 **จำนวนที่ต้องโอน:** **${topup.amount.toFixed(2)} บาท**\n` +
-                        `⏳ **จำกัดเวลาโอนเงิน:** <t:${expireUnix}:R> (${BANK_TOPUP_TIMEOUT_MINUTES} นาที)\n\n` +
-                        `${bankInfo}\n\n` +
-                        (qrBuffer
-                            ? `📱 **สแกน QR ด้านล่างได้เลย — ระบบใส่ยอด ${topup.amount.toFixed(2)} บาทให้แล้ว**\n\n`
-                            : `⚠️ ยังสร้าง QR อัตโนมัติไม่ได้ กรุณาใช้เลขบัญชี/พร้อมเพย์ด้านบน\n\n`) +
-                        `หลังโอนเสร็จ ให้ส่ง **รูปสลิปตัวจริง** ในห้อง <#${config.slipChannelId || config.ticketChannelId}>\n` +
-                        `ระบบจะตรวจสลิปอัตโนมัติว่า **โอนจริง / จำนวนเงินตรง / เข้าบัญชีร้าน / สลิปซ้ำหรือไม่**\n\n` +
-                        `🔒 **เงินจะเข้ายอดต่อเมื่อผ่านทุกเงื่อนไขเท่านั้น**`
+                        `🧾 **รหัสรายการ:** \`${topupId}\`\n` +
+                        `💰 **ยอดที่ต้องโอน:** **${amount.toFixed(2)} บาท**\n` +
+                        `⏰ **หมดอายุใน:** <t:${expireUnix}:R>\n\n` +
+                        `${getBankTopupDescription()}\n\n` +
+                        `📌 **ขั้นตอนการยืนยัน:**\n` +
+                        `1. โอนเงินตามยอดด้านบน\n` +
+                        `2. โอนเสร็จแล้ว ให้กดปุ่ม **"📸 แนบรูปสลิปยืนยัน"** ด้านล่าง\n` +
+                        `3. ส่งรูปสลิปเข้าแชทได้ทันที ระบบจะตรวจสลิปและเข้ายอดเงินให้อัตโนมัติ!`
                     );
 
-                const cancelBtnRow = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`cancel_topup_${topup.id}`)
-                        .setLabel('❌ ยกเลิกรายการนี้')
-                        .setStyle(ButtonStyle.Danger)
-                );
-
                 if (qrBuffer) embed.setImage('attachment://promptpay.png');
-                else if (config.bankQrImageUrl && String(config.bankQrImageUrl).trim()) {
-                    embed.setImage(String(config.bankQrImageUrl).trim());
-                }
+
+                const actionRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId(`upload_slip_${topupId}`).setLabel('📸 แนบรูปสลิปยืนยัน').setStyle(ButtonStyle.Success),
+                    new ButtonBuilder().setCustomId(`cancel_topup_${topupId}`).setLabel('❌ ยกเลิกรายการนี้').setStyle(ButtonStyle.Danger)
+                );
 
                 return await interaction.reply({
                     embeds: [embed],
-                    components: [cancelBtnRow],
+                    components: [actionRow],
                     files: qrBuffer ? [new AttachmentBuilder(qrBuffer, { name: 'promptpay.png' })] : [],
                     ephemeral: true
                 });
             }
-
-            if (interaction.customId === "setup2_modal") {
-                await interaction.deferReply({ ephemeral: true }).catch(() => {});
-
-                const rawName = interaction.fields.getTextInputValue('prod_name');
-                const rawPrice = interaction.fields.getTextInputValue('prod_price');
-                const rawStock = interaction.fields.getTextInputValue('prod_stock');
-                const rawRole = interaction.fields.getTextInputValue('prod_role') || "";
-                const rawDetails = interaction.fields.getTextInputValue('prod_links') || "";
-
-                const cleanPrice = parseFloat(rawPrice.replace(/[^0-9.]/g, ''));
-                const cleanStock = parseInt(rawStock.replace(/[^0-9]/g, ''));
-
-                if (isNaN(cleanPrice) || cleanPrice < 0) {
-                    return await interaction.editReply({ content: "❌ **ราคาไม่ถูกต้อง!** กรุณากรอกเฉพาะตัวเลข เช่น `100`" });
-                }
-
-                if (isNaN(cleanStock) || cleanStock < 0) {
-                    return await interaction.editReply({ content: "❌ **สต็อกไม่ถูกต้อง!** กรุณากรอกเฉพาะตัวเลข เช่น `10`" });
-                }
-
-                const cleanRole = rawRole.replace(/[^0-9]/g, '');
-                
-                const linesArr = rawDetails.split('\n').map(l => l.trim());
-                const gofileUrl = linesArr[0] || "";      
-                const description = linesArr[1] || "";    
-                const previewImage = linesArr[2] || "";   
-
-                const products = getProducts();
-                const newId = `prod_${Date.now()}`;
-
-                const newProd = {
-                    id: newId,
-                    name: rawName.trim(),
-                    price: cleanPrice,
-                    stock: cleanStock,
-                    roleId: cleanRole,
-                    gofileUrl: gofileUrl,
-                    description: description,
-                    previewImage: previewImage
-                };
-
-                products.push(newProd);
-                saveProducts(products);
-
-                await interaction.editReply({
-                    content: `✅ **เพิ่มสินค้าสำเร็จแล้วครับ!**\n\n📌 **ชื่อสินค้า:** ${newProd.name}\n💵 **ราคา:** ${newProd.price} บาท\n📦 **สต็อก:** ${newProd.stock} ชิ้น${description ? `\n📝 **รายละเอียด:** ${description}` : ''}${cleanRole ? `\n🏷️ **ยศ:** <@&${cleanRole}>` : ''}`
-                });
-            }
-
-            if (interaction.customId.startsWith('stock_modal_')) {
-                const parts = interaction.customId.split('_');
-                const action = parts[2];
-                const productId = parts.slice(3).join('_');
-                const rawAmount = interaction.fields.getTextInputValue('stock_amount');
-                const inputAmount = parseInt(rawAmount.replace(/[^0-9]/g, ''));
-
-                if (isNaN(inputAmount) || inputAmount <= 0) return interaction.reply({ content: "❌ กรุณากรอกจำนวนตัวเลขที่ถูกต้อง", ephemeral: true });
-
-                const products = getProducts();
-                const product = products.find(p => p.id === productId);
-                if (!product) return interaction.reply({ content: "❌ ไม่พบสินค้านี้", ephemeral: true });
-
-                if (product.stock === undefined) product.stock = 0;
-                if (action === 'add') product.stock += inputAmount;
-                else product.stock = Math.max(0, product.stock - inputAmount);
-
-                saveProducts(products);
-                await interaction.reply({ content: `✅ อัปเดตสต็อก **${product.name}** เรียบร้อย!\n📦 คงเหลือปัจจุบัน: **${product.stock} ชิ้น**`, ephemeral: true });
-            }
-
-            if (interaction.customId === 'money_modal_add' || interaction.customId === 'money_modal_remove') {
-                const action = interaction.customId.includes('add') ? 'add' : 'remove';
-                const targetUserId = interaction.fields.getTextInputValue('target_userid').trim();
-                const rawAmount = interaction.fields.getTextInputValue('money_amount');
-                const amount = parseInt(rawAmount.replace(/[^0-9]/g, ''));
-
-                if (isNaN(amount) || amount <= 0) return interaction.reply({ content: "❌ จำนวนเงินไม่ถูกต้อง", ephemeral: true });
-
-                const balances = getBalances();
-                if (!balances[targetUserId]) balances[targetUserId] = 0;
-                if (action === 'add') balances[targetUserId] += amount;
-                else balances[targetUserId] = Math.max(0, balances[targetUserId] - amount);
-                saveBalances(balances);
-
-                await interaction.reply({ content: `✅ ${action === 'add' ? 'เพิ่มเงิน' : 'หักเงิน'}สำเร็จ\n👤 ID: \`${targetUserId}\` | 💰 คงเหลือ: **${balances[targetUserId]} บาท**`, ephemeral: true });
-            }
-
-            if (interaction.customId === 'user_check_modal') {
-                const targetUserId = interaction.fields.getTextInputValue('check_userid').trim();
-                const balances = getBalances();
-                const purchases = getPurchases();
-
-                const userBalance = balances[targetUserId] || 0;
-                const userPurchases = purchases[targetUserId] || [];
-                let purchaseHistory = userPurchases.length > 0 ? userPurchases.map(p => `• **${p.productName}** (${p.price} บาท)`).join('\n') : "ไม่มีประวัติการซื้อ";
-
-                const embed = new EmbedBuilder().setColor("Purple").setTitle(`🔍 ข้อมูลผู้ใช้ ID: ${targetUserId}`).addFields({ name: "💳 เงินคงเหลือ", value: `${userBalance} บาท`, inline: true }, { name: "🛒 ประวัติการซื้อ", value: purchaseHistory, inline: false });
-                return await interaction.reply({ embeds: [embed], ephemeral: true });
-            }
         }
-    } catch (error) {
-        console.error('Interaction Error:', error);
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({ content: '❌ เกิดข้อผิดพลาดในระบบ กรุณาลองใหม่อีกครั้ง', ephemeral: true }).catch(() => {});
-        }
+    } catch (err) {
+        console.error(err);
     }
 });
 
 // ---------------------------------------------------------
-// รับสลิป + ตรวจสอบกับ EasySlip อัตโนมัติ
+// ดักจับรูปสลิปที่ผู้ใช้ส่งลงในช่องแชทแบบอัตโนมัติ
 // ---------------------------------------------------------
 client.on('messageCreate', async (message) => {
     try {
         if (message.author.bot) return;
-        if (!config.slipChannelId || message.channel.id !== config.slipChannelId) return;
+
+        // เช็คว่าผู้ใช้นี้กำลังรอยืนยันสลิปอยู่หรือไม่
+        const pending = awaitingSlipUsers.get(message.author.id);
+        if (!pending) return;
+
+        if (Date.now() > pending.expiresAt) {
+            awaitingSlipUsers.delete(message.author.id);
+            return;
+        }
 
         const attachment = message.attachments.find(a => {
             const type = a.contentType || '';
             return type.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(a.name || '');
         });
+
         if (!attachment) return;
 
-        const codeMatch = message.content.match(/BANK-[A-Z0-9-]+/i);
-        const topupsBefore = getTopups();
+        // ลบข้อความสลิปของผู้ใช้ออกเพื่อความสะอาดของช่องแชท (ถ้าลบได้)
+        message.delete().catch(() => {});
 
-        // เคลียร์และเช็คว่ารายการค้างหมดอายุหรือยังก่อนตรวจสลิป
-        const now = Date.now();
-        const timeoutMs = BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000;
-        let topup = codeMatch ? topupsBefore[codeMatch[0].toUpperCase()] : null;
+        // ลบสถานะรอ
+        awaitingSlipUsers.delete(message.author.id);
 
-        if (!topup) {
-            topup = Object.values(topupsBefore).find(t =>
-                t.userId === message.author.id && t.status === 'awaiting_slip'
-            );
-        }
-
-        if (topup && ['awaiting_slip', 'pending'].includes(topup.status)) {
-            const createdAt = new Date(topup.createdAt).getTime();
-            if (now - createdAt > timeoutMs) {
-                await queueDbWrite(async () => {
-                    const topups = getTopups();
-                    if (topups[topup.id]) {
-                        topups[topup.id].status = 'expired';
-                        topups[topup.id].expiredAt = new Date().toISOString();
-                        saveTopups(topups);
-                    }
-                });
-                return message.reply(`⏰ **รายการเติมเงิน \`${topup.id}\` หมดอายุแล้ว** (${BANK_TOPUP_TIMEOUT_MINUTES} นาที) กรุณากดเติมเงินเพื่อทำรายการใหม่อีกครั้งครับ`);
-            }
-        }
-
-        if (!topup) {
-            return message.reply("❌ ไม่พบรายการเติมเงินที่รอรับสลิปของคุณ กรุณากด **เติมผ่าน QR/ธนาคาร** ก่อน");
-        }
-
-        if (topup.userId !== message.author.id) {
-            return message.reply("❌ รายการนี้ไม่ใช่ของคุณ ไม่สามารถนำสลิปมาเข้าบัญชีผู้อื่นได้");
-        }
-
-        const locked = await queueDbWrite(async () => {
-            const topups = getTopups();
-            const current = topups[topup.id];
-            if (!current || current.userId !== message.author.id) return { error: "ไม่พบรายการ" };
-            if (current.status !== 'awaiting_slip') return { error: "รายการนี้กำลังตรวจสอบ หรือหมดอายุ/ถูกยกเลิกไปแล้ว" };
-
-            current.status = 'verifying';
-            current.slipMessageId = message.id;
-            current.slipUrl = attachment.url;
-            current.submittedAt = new Date().toISOString();
-            saveTopups(topups);
-            return { topup: current };
-        });
-
-        if (locked.error) return message.reply(`⏳ ${locked.error}`);
-
-        const currentTopup = locked.topup;
-
-        let verification;
-        try {
-            verification = await verifyBankSlipByUrl(
-                currentTopup.slipUrl,
-                currentTopup.amount,
-                currentTopup.id
-            );
-        } catch (err) {
-            console.error("EasySlip verification error:", err);
-
-            await queueDbWrite(async () => {
-                const topups = getTopups();
-                if (topups[currentTopup.id] && topups[currentTopup.id].status === 'verifying') {
-                    topups[currentTopup.id].status = 'awaiting_slip';
-                    topups[currentTopup.id].lastError = String(err.message || err);
-                    saveTopups(topups);
-                }
-            });
-
-            return message.reply(
-                `⚠️ **ยังตรวจสอบสลิปไม่ได้**\n` +
-                `รายการ: \`${currentTopup.id}\`\n` +
-                `สาเหตุ: ${String(err.message || err)}\n\n` +
-                `กรุณาลองส่งสลิปใหม่อีกครั้ง`
-            );
-        }
-
-        const duplicate = verification.isDuplicate;
-        const amountMatched = verification.isAmountMatched;
-        const accountMatched = !!verification.matchedAccount;
-        const transRef = verification.transRef;
-
-        const topupsNow = getTopups();
-        const localTransRefUsed = transRef && Object.values(topupsNow).some(t =>
-            t.id !== currentTopup.id &&
-            t.status === 'approved' &&
-            t.transRef === transRef
-        );
-
-        const verified = !duplicate && !localTransRefUsed && amountMatched && accountMatched && !!transRef;
-
-        if (!verified) {
-            await queueDbWrite(async () => {
-                const topups = getTopups();
-                const t = topups[currentTopup.id];
-                if (!t) return;
-
-                t.status = 'rejected';
-                t.rejectedAt = new Date().toISOString();
-                t.transRef = transRef || null;
-                t.verification = {
-                    isDuplicate: duplicate,
-                    isAmountMatched: amountMatched,
-                    accountMatched,
-                    amountInSlip: verification.amount,
-                    localTransRefUsed
-                };
-                saveTopups(topups);
-            });
-
-            return message.reply(
-                `❌ **สลิปไม่ผ่านการตรวจสอบ**\n` +
-                `🧾 รายการ: \`${currentTopup.id}\`\n` +
-                `💰 ยอดที่ต้องโอน: **${currentTopup.amount.toFixed(2)} บาท**\n` +
-                `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\n` +
-                `📌 จำนวนเงินตรง: ${amountMatched ? '✅' : '❌'}\n` +
-                `🏦 บัญชีผู้รับตรงกับบัญชีร้าน: ${accountMatched ? '✅' : '❌'}\n` +
-                `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}\n\n` +
-                `ระบบ **ยังไม่เพิ่มเงิน** ให้บัญชีคุณ`
-            );
-        }
-
-        const approved = await queueDbWrite(async () => {
-            const topups = getTopups();
-            const t = topups[currentTopup.id];
-
-            if (!t || t.status !== 'verifying') return { error: "รายการนี้ถูกดำเนินการไปแล้ว" };
-
-            const balances = getBalances();
-            if (!balances[t.userId]) balances[t.userId] = 0;
-
-            balances[t.userId] += Number(t.amount);
-            saveBalances(balances);
-
-            t.status = 'approved';
-            t.transRef = transRef;
-            t.approvedAt = new Date().toISOString();
-            t.balanceAfter = balances[t.userId];
-            t.verification = {
-                isDuplicate: duplicate,
-                isAmountMatched: amountMatched,
-                accountMatched,
-                amountInSlip: verification.amount,
-                receiver: verification.matchedAccount,
-                transRef
-            };
-            saveTopups(topups);
-
-            return { balance: balances[t.userId], topup: t };
-        });
-
-        if (approved.error) return message.reply(`❌ ${approved.error}`);
-
-        await message.reply(
-            `✅ **เติมเงินสำเร็จ — ระบบตรวจสอบสลิปผ่านแล้ว**\n` +
-            `🧾 รายการ: \`${currentTopup.id}\`\n` +
-            `💰 ได้รับ: **${currentTopup.amount.toFixed(2)} บาท**\n` +
-            `🔐 ตรวจสอบบัญชีผู้รับ: ✅\n` +
-            `🔐 ตรวจสอบจำนวนเงิน: ✅\n` +
-            `🔐 ตรวจสอบสลิปซ้ำ: ✅\n` +
-            `🔐 ตรวจสอบเลขอ้างอิงธุรกรรม: ✅\n` +
-            `💳 ยอดคงเหลือใหม่: **${approved.balance.toFixed(2)} บาท**`
-        );
-
-        const logChannel = message.guild?.channels.cache.get(config.channellog);
-        if (logChannel) {
-            await logChannel.send({
-                embeds: [new EmbedBuilder()
-                    .setColor("Green")
-                    .setTitle("🏦 เติมเงินธนาคารสำเร็จ (Auto Verified)")
-                    .setDescription(
-                        `👤 ผู้เติม: <@${currentTopup.userId}>\n` +
-                        `🧾 รายการ: \`${currentTopup.id}\`\n` +
-                        `💰 จำนวน: **${currentTopup.amount.toFixed(2)} บาท**\n` +
-                        `🔖 TransRef: \`${transRef}\`\n` +
-                        `🏦 บัญชีผู้รับ: ✅ ตรงกับบัญชีที่ลงทะเบียน EasySlip\n` +
-                        `♻️ สลิปซ้ำ: ❌\n` +
-                        `💳 ยอดหลังเติม: **${approved.balance.toFixed(2)} บาท**`
-                    )
-                    .setTimestamp()]
-            });
-        }
+        const loadingMsg = await message.channel.send(`⏳ กำลังตรวจสอบรูปสลิปของคุณสำหรับรายการ \`${pending.topupId}\`...`);
+        
+        // ประมวลผลตรวจสอบสลิป
+        await processSlipVerification(message.author, message.channel, attachment, pending.topupId);
+        
+        loadingMsg.delete().catch(() => {});
     } catch (err) {
-        console.error("Slip processing error:", err);
+        console.error("Auto slip handler error:", err);
     }
 });
 
-process.on('unhandledRejection', (reason, p) => console.log(' [Anti-Crash] :: Unhandled Rejection', reason));
-process.on('uncaughtException', (err, origin) => console.log(' [Anti-Crash] :: Uncaught Exception', err));
+process.on('unhandledRejection', (reason) => console.log(' [Anti-Crash] :: Unhandled Rejection', reason));
+process.on('uncaughtException', (err) => console.log(' [Anti-Crash] :: Uncaught Exception', err));
 
 client.login(botToken);
