@@ -254,6 +254,18 @@ function parseGiveawayMoreOptions(str) {
     return { limit, giveRoleId, roleMention, imageUrl };
 }
 
+// 📦 ฟังก์ชันส่งกล่อง Embed ทีละ 10 ชุด (เพื่อป้องกันข้อจำกัดของ Discord ที่ส่งได้รอบละ 10 กล่อง และทำให้โชว์ได้ทุกสินค้าไม่มีหาย)
+async function sendEmbedsInChunks(interaction, embeds, ephemeral = true) {
+    for (let i = 0; i < embeds.length; i += 10) {
+        const chunk = embeds.slice(i, i + 10);
+        if (i === 0) {
+            await interaction.reply({ embeds: chunk, ephemeral });
+        } else {
+            await interaction.followUp({ embeds: chunk, ephemeral });
+        }
+    }
+}
+
 const commands = [
     new SlashCommandBuilder()
         .setName("setup")
@@ -563,16 +575,19 @@ client.on("interactionCreate", async (interaction) => {
                     return interaction.reply({ content: "📦 ไม่มีสินค้าในระบบ", ephemeral: true });
                 }
 
+                // 🛠️ อัปเกรด: แสดงผลรูปภาพใหญ่ชัดเจน พร้อมระบบรองรับโชว์ทุกสินค้า
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
                         .setTitle(`${index + 1}. 📌 ${p.name}`)
-                        .setDescription(`🆔 **ID สินค้า:** \`${p.id}\`\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n📝 **รายละเอียด:** ${p.desc || 'ไม่มีรายละเอียด'}\n🎗️ **ID ยศ:** ${p.roleId ? p.roleId : 'ไม่มียศ'}`)
+                        .setDescription(`🆔 **ID สินค้า:** \`${p.id}\`\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n📝 **รายละเอียด:** ${p.desc || 'ไม่มีรายละเอียด'}\n🎗️ **ID ยศ:** ${p.roleId ? `<@&${p.roleId}>` : 'ไม่มียศ'}`)
                         .setColor("Blue");
-                    if (p.imageUrl && p.imageUrl.startsWith('http')) embed.setThumbnail(p.imageUrl);
+                    if (p.imageUrl && p.imageUrl.startsWith('http')) {
+                        embed.setImage(p.imageUrl);
+                    }
                     return embed;
                 });
-                return interaction.reply({ embeds: embeds.slice(0, 10), ephemeral: true });
+                return await sendEmbedsInChunks(interaction, embeds, true);
             }
 
             if (name === 'balance') {
@@ -601,7 +616,7 @@ client.on("interactionCreate", async (interaction) => {
                     try {
                         const role = interaction.guild.roles.cache.get(gw.giveRoleId);
                         if (role) await interaction.member.roles.add(role);
-                    } catch (e) {}
+                    } catch (e) { console.error("Giveaway role add error:", e); }
                 }
 
                 if (gw.type === 'points' && gw.pointsAmount > 0) {
@@ -669,17 +684,20 @@ client.on("interactionCreate", async (interaction) => {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ไม่พบสินค้าในระบบ", ephemeral: true });
 
+                // 🛠️ อัปเกรด: แสดงผลรูปภาพแบบจัดเต็ม ไม่พลาดแม้แต่ชิ้นเดียว
                 const embeds = products.map((p, index) => {
                     const count = Array.isArray(p.stock) ? p.stock.length : 0;
                     const embed = new EmbedBuilder()
                         .setTitle(`${index + 1}. 📌 ${p.name}`)
-                        .setDescription(`🆔 **ID สินค้า:** \`${p.id}\`\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n📝 **รายละเอียด:** ${p.desc || 'ไม่มีรายละเอียด'}\n🎗️ **ID ยศ:** ${p.roleId ? p.roleId : 'ไม่มียศ'}`)
+                        .setDescription(`🆔 **ID สินค้า:** \`${p.id}\`\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n📝 **รายละเอียด:** ${p.desc || 'ไม่มีรายละเอียด'}\n🎗️ **ID ยศ:** ${p.roleId ? `<@&${p.roleId}>` : 'ไม่มียศ'}`)
                         .setColor("Blue");
-                    if (p.imageUrl && p.imageUrl.startsWith('http')) embed.setThumbnail(p.imageUrl);
+                    if (p.imageUrl && p.imageUrl.startsWith('http')) {
+                        embed.setImage(p.imageUrl);
+                    }
                     return embed;
                 });
                 
-                return interaction.reply({ embeds: embeds.slice(0, 10), ephemeral: true });
+                return await sendEmbedsInChunks(interaction, embeds, true);
             }
 
             if (interaction.customId === 'btn_admin_manage_balance') {
@@ -717,8 +735,22 @@ client.on("interactionCreate", async (interaction) => {
             if (interaction.customId === "list_products") {
                 const products = getProducts();
                 if (products.length === 0) return interaction.reply({ content: "📦 ขณะนี้ยังไม่มีสินค้าในร้านครับ", ephemeral: true });
-                let desc = products.map((p, i) => `${i + 1}. **${p.name}** - ราคา **${p.price} บาท** (คงเหลือ: ${Array.isArray(p.stock) ? p.stock.length : 0} ชิ้น)`).join('\n');
-                return interaction.reply({ embeds: [new EmbedBuilder().setColor("Blue").setTitle("📦 รายการสินค้าทั้งหมด").setDescription(desc)], ephemeral: true });
+                
+                // 🛠️ อัปเกรด: แสดงผลรูปภาพ รายละเอียด ยศ และยอดคงเหลือแบบสวยงามตามที่ผู้ใช้ต้องการ
+                const embeds = products.map((p, index) => {
+                    const count = Array.isArray(p.stock) ? p.stock.length : 0;
+                    const embed = new EmbedBuilder()
+                        .setTitle(`${index + 1}. 🛒 สินค้า: ${p.name}`)
+                        .setDescription(`${p.desc || 'ไม่มีรายละเอียดสินค้า'}\n\n💰 **ราคา:** ${p.price} บาท\n📦 **สต็อกคงเหลือ:** ${count} ชิ้น\n🎗️ **ยศที่จะได้รับ:** ${p.roleId ? `<@&${p.roleId}>` : 'ไม่มียศ'}`)
+                        .setColor("Blue");
+                    
+                    if (p.imageUrl && p.imageUrl.startsWith('http')) {
+                        embed.setImage(p.imageUrl);
+                    }
+                    return embed;
+                });
+
+                return await sendEmbedsInChunks(interaction, embeds, true);
             }
 
             if (interaction.customId === "buy_menu") {
@@ -769,7 +801,7 @@ client.on("interactionCreate", async (interaction) => {
                     try {
                         const role = interaction.guild.roles.cache.get(product.roleId);
                         if (role) await interaction.member.roles.add(role);
-                    } catch (e) {}
+                    } catch (e) { console.error("Role assignment error:", e); }
                 }
 
                 let replyMsg = `📦 **สินค้า:** ${product.name}\n💰 **ราคา:** ${product.price} บาท\n💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท\n\n🔑 **ข้อมูลสินค้า/สิทธิ์ของคุณ:**\n\`\`\`${itemReceived}\`\`\``;
@@ -913,7 +945,6 @@ client.on("interactionCreate", async (interaction) => {
                     .setDescription(`${product.desc || 'ไม่มีรายละเอียดสินค้า'}\n\n💰 **ราคา:** ${product.price} บาท\n📦 **สต็อกคงเหลือ:** ${product.stock.length} ชิ้น\n🎗️ **ยศที่จะได้รับ:** ${product.roleId ? `<@&${product.roleId}>` : 'ไม่มียศ'}`)
                     .setColor('Yellow');
                 
-                // โค้ดส่วนที่เพิ่มรูปภาพสินค้า (Image) เข้าไปใน Embed เรียบร้อยแล้ว
                 if (product.imageUrl && product.imageUrl.startsWith('http')) {
                     embed.setImage(product.imageUrl);
                 }
