@@ -29,7 +29,10 @@ const fs = require('fs');
 const chalk = require('chalk');
 const QRCode = require('qrcode');
 
-// ฟังก์ชันสร้าง PromptPay Payload ในตัว (ไม่ต้องใช้ module promptpay-qr)
+// ⏱️ ตั้งค่าเวลาหมดอายุของการเติมเงิน (หน่วยเป็นนาที) เช่น 5 หรือ 10 นาที
+const BANK_TOPUP_TIMEOUT_MINUTES = 5; 
+
+// ฟังก์ชันสร้าง PromptPay Payload ในตัว
 function generatePayload(target, options = {}) {
     const amount = options.amount;
     const sanitized = String(target || '').replace(/[^0-9]/g, '');
@@ -217,7 +220,6 @@ function saveGiveaways(data) {
     fs.writeFileSync(GIVEAWAY_FILE, JSON.stringify(data, null, 4));
 }
 
-// ตรวจสอบสิทธิ์ Admin
 function isAdmin(interaction) {
     const userId = interaction.user ? interaction.user.id : interaction.author.id;
     let owners = config.ownerIDs || [config.ownerID];
@@ -314,7 +316,6 @@ client.once("ready", () => {
     })();
 });
 
-// ฟังก์ชันสร้างหน้าเมนูร้านค้า
 function createShopMenu() {
     const embed = new EmbedBuilder()
         .setTitle('🛒 LucaShop')
@@ -341,7 +342,6 @@ function createShopMenu() {
     return { embeds: [embed], components: [row1, row1b, row2] };
 }
 
-// ฟังก์ชันสร้างหน้า Control Room
 function getAdminPanel() {
     const embed = new EmbedBuilder()
         .setColor("DarkButNotBlack")
@@ -365,7 +365,6 @@ function getAdminPanel() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ฟังก์ชันสร้าง Modal เพิ่มสินค้า
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
@@ -419,7 +418,6 @@ function buildAddProductModal() {
 // ---------------------------------------------------------
 client.on("interactionCreate", async (interaction) => {
     try {
-        // --- 1. Slash Commands ---
         if (interaction.isChatInputCommand()) {
             if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
 
@@ -563,7 +561,25 @@ client.on("interactionCreate", async (interaction) => {
 
         // --- 2. Buttons ---
         if (interaction.isButton()) {
-            
+
+            // 🛑 ปุ่มยกเลิกรายการเติมเงิน
+            if (interaction.customId.startsWith('cancel_topup_')) {
+                const topupId = interaction.customId.replace('cancel_topup_', '');
+                await queueDbWrite(async () => {
+                    const topups = getTopups();
+                    if (topups[topupId]) {
+                        topups[topupId].status = 'cancelled';
+                        topups[topupId].cancelledAt = new Date().toISOString();
+                        saveTopups(topups);
+                    }
+                });
+
+                return await interaction.reply({
+                    content: `🗑️ **ยกเลิกรายการเติมเงิน \`${topupId}\` เรียบร้อยแล้ว!** คุณสามารถกดเติมเงินเพื่อทำรายการใหม่ได้ทันทีครับ`,
+                    ephemeral: true
+                });
+            }
+
             if (interaction.customId.startsWith('claim_gw_')) {
                 const giveawayId = interaction.customId.replace('claim_gw_', '');
                 const giveaways = getGiveaways();
@@ -638,15 +654,51 @@ client.on("interactionCreate", async (interaction) => {
 
             if (interaction.customId === "bank_topup_menu") {
                 const topups = getTopups();
+                const now = Date.now();
+                const timeoutMs = BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000;
+
+                // ตรวจสอบและยกเลิกรายการที่หมดอายุโดยอัตโนมัติ
+                let hasChanges = false;
+                Object.values(topups).forEach(t => {
+                    if (['awaiting_slip', 'pending'].includes(t.status)) {
+                        const createdAt = new Date(t.createdAt).getTime();
+                        if (now - createdAt > timeoutMs) {
+                            t.status = 'expired';
+                            t.expiredAt = new Date().toISOString();
+                            hasChanges = true;
+                        }
+                    }
+                });
+                if (hasChanges) saveTopups(topups);
+
+                // ค้นหารายการค้างที่ยังไม่หมดอายุ
                 const existing = Object.values(topups).find(t =>
                     t.userId === interaction.user.id && ['awaiting_slip', 'pending'].includes(t.status)
                 );
+
                 if (existing) {
+                    const cancelRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`cancel_topup_${existing.id}`)
+                            .setLabel('❌ ยกเลิกรายการนี้เพื่อทำใหม่')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+
+                    const createdAtMs = new Date(existing.createdAt).getTime();
+                    const expireTimeUnix = Math.floor((createdAtMs + timeoutMs) / 1000);
+
                     return interaction.reply({
                         embeds: [new EmbedBuilder()
                             .setColor("Orange")
-                            .setTitle("⏳ มีรายการเติมเงินที่กำลังตรวจสอบ")
-                            .setDescription(`คุณมีรายการค้างอยู่แล้ว\n🧾 รายการ: **${existing.id}**\n💰 จำนวน: **${existing.amount} บาท**\n\nกรุณารอรายการเดิมเสร็จก่อน เพื่อป้องกันการเติมเงินซ้อน/เข้าผิดบัญชี.`)],
+                            .setTitle("⏳ มีรายการเติมเงินที่ยังทำไม่เสร็จ")
+                            .setDescription(
+                                `คุณมีรายการเติมเงินค้างอยู่อยู่แล้วครับ\n\n` +
+                                `🧾 **รหัสรายการ:** \`${existing.id}\`\n` +
+                                `💰 **จำนวนเงิน:** **${existing.amount.toFixed(2)} บาท**\n` +
+                                `⏰ **จะหมดอายุใน:** <t:${expireTimeUnix}:R>\n\n` +
+                                `หากต้องการโอนยอดใหม่ หรือเปลี่ยนใจ ให้กดปุ่ม **"ยกเลิกรายการนี้"** ด้านล่างได้เลยครับ`
+                            )],
+                        components: [cancelRow],
                         ephemeral: true
                     });
                 }
@@ -716,7 +768,6 @@ client.on("interactionCreate", async (interaction) => {
                 return await interaction.reply({ embeds: [new EmbedBuilder().setColor("Orange").setTitle("🎫 ต้องการความช่วยเหลือ?").setDescription(`คุณสามารถติดต่อแอดมินหรือเปิดทิกเก็ตได้ที่ห้องนี้เลยครับ: <#${config.ticketChannelId}>`)], ephemeral: true });
             }
 
-            // ปุ่ม Admin Control Room
             if (interaction.customId === "adm_prod_add") {
                 if (!isAdmin(interaction)) return interaction.reply({ content: "❌ สำหรับ Admin เท่านั้น", ephemeral: true });
                 return await interaction.showModal(buildAddProductModal());
@@ -971,8 +1022,16 @@ client.on("interactionCreate", async (interaction) => {
                 });
 
                 if (result.error) {
+                    const cancelRow = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`cancel_topup_${result.error.id}`)
+                            .setLabel('❌ ยกเลิกรายการนี้เพื่อทำใหม่')
+                            .setStyle(ButtonStyle.Danger)
+                    );
+
                     return interaction.reply({
-                        content: `⏳ คุณมีรายการเติมเงินค้างอยู่แล้ว: **${result.error.id}**\nกรุณาส่งสลิปของรายการเดิมก่อน`,
+                        content: `⏳ คุณมีรายการเติมเงินค้างอยู่แล้ว: **${result.error.id}**\nกรุณาส่งสลิปของรายการเดิม หรือกดปุ่มยกเลิกรายการ`,
+                        components: [cancelRow],
                         ephemeral: true
                     });
                 }
@@ -986,12 +1045,15 @@ client.on("interactionCreate", async (interaction) => {
                     console.error("PromptPay QR error:", qrErr);
                 }
 
+                const expireUnix = Math.floor((Date.now() + (BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000)) / 1000);
+
                 const embed = new EmbedBuilder()
                     .setColor("Blue")
                     .setTitle("🏦 เติมเงินผ่าน PromptPay / ธนาคาร")
                     .setDescription(
                         `🧾 **รหัสรายการ:** \`${topup.id}\`\n` +
-                        `💰 **จำนวนที่ต้องโอน:** **${topup.amount.toFixed(2)} บาท**\n\n` +
+                        `💰 **จำนวนที่ต้องโอน:** **${topup.amount.toFixed(2)} บาท**\n` +
+                        `⏳ **จำกัดเวลาโอนเงิน:** <t:${expireUnix}:R> (${BANK_TOPUP_TIMEOUT_MINUTES} นาที)\n\n` +
                         `${bankInfo}\n\n` +
                         (qrBuffer
                             ? `📱 **สแกน QR ด้านล่างได้เลย — ระบบใส่ยอด ${topup.amount.toFixed(2)} บาทให้แล้ว**\n\n`
@@ -1001,6 +1063,13 @@ client.on("interactionCreate", async (interaction) => {
                         `🔒 **เงินจะเข้ายอดต่อเมื่อผ่านทุกเงื่อนไขเท่านั้น**`
                     );
 
+                const cancelBtnRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`cancel_topup_${topup.id}`)
+                        .setLabel('❌ ยกเลิกรายการนี้')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
                 if (qrBuffer) embed.setImage('attachment://promptpay.png');
                 else if (config.bankQrImageUrl && String(config.bankQrImageUrl).trim()) {
                     embed.setImage(String(config.bankQrImageUrl).trim());
@@ -1008,6 +1077,7 @@ client.on("interactionCreate", async (interaction) => {
 
                 return await interaction.reply({
                     embeds: [embed],
+                    components: [cancelBtnRow],
                     files: qrBuffer ? [new AttachmentBuilder(qrBuffer, { name: 'promptpay.png' })] : [],
                     ephemeral: true
                 });
@@ -1138,11 +1208,30 @@ client.on('messageCreate', async (message) => {
         const codeMatch = message.content.match(/BANK-[A-Z0-9-]+/i);
         const topupsBefore = getTopups();
 
+        // เคลียร์และเช็คว่ารายการค้างหมดอายุหรือยังก่อนตรวจสลิป
+        const now = Date.now();
+        const timeoutMs = BANK_TOPUP_TIMEOUT_MINUTES * 60 * 1000;
         let topup = codeMatch ? topupsBefore[codeMatch[0].toUpperCase()] : null;
+
         if (!topup) {
             topup = Object.values(topupsBefore).find(t =>
                 t.userId === message.author.id && t.status === 'awaiting_slip'
             );
+        }
+
+        if (topup && ['awaiting_slip', 'pending'].includes(topup.status)) {
+            const createdAt = new Date(topup.createdAt).getTime();
+            if (now - createdAt > timeoutMs) {
+                await queueDbWrite(async () => {
+                    const topups = getTopups();
+                    if (topups[topup.id]) {
+                        topups[topup.id].status = 'expired';
+                        topups[topup.id].expiredAt = new Date().toISOString();
+                        saveTopups(topups);
+                    }
+                });
+                return message.reply(`⏰ **รายการเติมเงิน \`${topup.id}\` หมดอายุแล้ว** (${BANK_TOPUP_TIMEOUT_MINUTES} นาที) กรุณากดเติมเงินเพื่อทำรายการใหม่อีกครั้งครับ`);
+            }
         }
 
         if (!topup) {
@@ -1157,7 +1246,7 @@ client.on('messageCreate', async (message) => {
             const topups = getTopups();
             const current = topups[topup.id];
             if (!current || current.userId !== message.author.id) return { error: "ไม่พบรายการ" };
-            if (current.status !== 'awaiting_slip') return { error: "รายการนี้กำลังตรวจสอบหรือดำเนินการไปแล้ว" };
+            if (current.status !== 'awaiting_slip') return { error: "รายการนี้กำลังตรวจสอบ หรือหมดอายุ/ถูกยกเลิกไปแล้ว" };
 
             current.status = 'verifying';
             current.slipMessageId = message.id;
