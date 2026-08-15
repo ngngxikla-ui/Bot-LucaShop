@@ -27,8 +27,48 @@ const { REST } = require("@discordjs/rest");
 const { Routes } = require("discord-api-types/v9");
 const fs = require('fs');
 const chalk = require('chalk');
-const generatePayload = require('promptpay-qr');
 const QRCode = require('qrcode');
+
+// ฟังก์ชันสร้าง PromptPay Payload ในตัว (ไม่ต้องใช้ module promptpay-qr)
+function generatePayload(target, options = {}) {
+    const amount = options.amount;
+    const sanitized = String(target || '').replace(/[^0-9]/g, '');
+    let targetType = '01';
+    let targetFormatted = sanitized;
+
+    if (sanitized.length === 10 && sanitized.startsWith('0')) {
+        targetType = '01';
+        targetFormatted = '0066' + sanitized.substring(1);
+    } else if (sanitized.length === 13) {
+        targetType = '02';
+        targetFormatted = sanitized;
+    }
+
+    const tag29_00 = '0016A000000677010111';
+    const tag29_01 = `${targetType}${String(targetFormatted.length).padStart(2, '0')}${targetFormatted}`;
+    const tag29Val = tag29_00 + tag29_01;
+    const tag29 = `29${String(tag29Val.length).padStart(2, '0')}${tag29Val}`;
+
+    const tag00 = '000201';
+    const tag01 = amount ? '010212' : '010211';
+    const tag53 = '5303764';
+    const tag58 = '5802TH';
+
+    let raw = tag00 + tag01 + tag29 + tag53;
+    if (amount !== undefined && amount !== null && amount !== '') {
+        const amtStr = Number(amount).toFixed(2);
+        raw += `54${String(amtStr.length).padStart(2, '0')}${amtStr}`;
+    }
+    raw += tag58 + '6304';
+
+    let crc = 0xFFFF;
+    for (let i = 0; i < raw.length; i++) {
+        let x = ((crc >> 8) ^ raw.charCodeAt(i)) & 0xFF;
+        x ^= x >> 4;
+        crc = ((crc << 8) ^ (x << 12) ^ (x << 5) ^ x) & 0xFFFF;
+    }
+    return raw + crc.toString(16).toUpperCase().padStart(4, '0');
+}
 
 const botToken = process.env.TOKEN || config.token;
 
@@ -325,7 +365,7 @@ function getAdminPanel() {
     return { embeds: [embed], components: [row1, row2] };
 }
 
-// ฟังก์ชันสร้าง Modal เพิ่มสินค้า (แก้ไขความยาว Label ให้ไม่เกิน 45 ตัวอักษร)
+// ฟังก์ชันสร้าง Modal เพิ่มสินค้า
 function buildAddProductModal() {
     const modal = new ModalBuilder().setCustomId('setup2_modal').setTitle('➕ เพิ่มสินค้าเข้าสู่ระบบ');
 
@@ -466,7 +506,6 @@ client.on("interactionCreate", async (interaction) => {
                 return await interaction.reply({ embeds: [embed], ephemeral: true });
             }
 
-            // กิจกรรมแจกเงิน / แจกโปรแกรม
             if (interaction.commandName === 'giveaway_money' || interaction.commandName === 'giveaway_program') {
                 const isMoney = interaction.commandName === 'giveaway_money';
                 const title = interaction.options.getString('title');
@@ -525,7 +564,6 @@ client.on("interactionCreate", async (interaction) => {
         // --- 2. Buttons ---
         if (interaction.isButton()) {
             
-            // ปุ่มรับของรางวัล Giveaway
             if (interaction.customId.startsWith('claim_gw_')) {
                 const giveawayId = interaction.customId.replace('claim_gw_', '');
                 const giveaways = getGiveaways();
@@ -760,7 +798,6 @@ client.on("interactionCreate", async (interaction) => {
         // --- 3. Select Menus ---
         if (interaction.isStringSelectMenu()) {
             
-            // ซื้อสินค้า
             if (interaction.customId === 'select_product') {
                 const products = getProducts();
                 const productId = interaction.values[0];
@@ -778,7 +815,6 @@ client.on("interactionCreate", async (interaction) => {
                     return interaction.update({ content: `❌ เงินไม่พอซื้อ **${product.name}**\n💰 เงินของคุณ: **${userBalance} บาท** | ต้องการ: **${product.price} บาท**`, components: [], ephemeral: true });
                 }
 
-                // ล็อกผู้ซื้อแต่ละคนชั่วคราว ป้องกันกดซื้อซ้อนจนยอด/สต็อกผิด
                 const purchaseLockKey = `${interaction.user.id}:${product.id}`;
                 if (purchaseLocks.has(purchaseLockKey)) {
                     return interaction.update({ content: "⏳ กำลังประมวลผลรายการก่อนหน้า กรุณารอสักครู่", components: [], ephemeral: true });
@@ -851,7 +887,6 @@ client.on("interactionCreate", async (interaction) => {
                 }
             }
 
-            // ลบสินค้า
             if (interaction.customId === 'select_delete_product') {
                 let products = getProducts();
                 const productId = interaction.values[0];
@@ -867,7 +902,6 @@ client.on("interactionCreate", async (interaction) => {
                 }
             }
 
-            // ปรับสต็อก
             if (interaction.customId === 'stock_action_add' || interaction.customId === 'stock_action_remove') {
                 const productId = interaction.values[0];
                 const action = interaction.customId.includes('add') ? 'add' : 'remove';
@@ -882,7 +916,6 @@ client.on("interactionCreate", async (interaction) => {
         // --- 4. Modal Submissions ---
         if (interaction.isModalSubmit()) {
             
-            // เติมเงิน
             if (interaction.customId === "topup_modal") {
                 const codeInput = interaction.fields.getTextInputValue('codeInput');
                 await interaction.deferReply({ ephemeral: true }); 
@@ -904,7 +937,6 @@ client.on("interactionCreate", async (interaction) => {
                 });
             }
 
-            // 🏦 สร้างรายการเติมเงินผ่าน QR / PromptPay / ธนาคาร
             if (interaction.customId === "bank_topup_modal") {
                 const amount = normalizeMoney(interaction.fields.getTextInputValue('bank_amount'));
                 const ref = (interaction.fields.getTextInputValue('bank_ref') || '').trim();
@@ -981,7 +1013,6 @@ client.on("interactionCreate", async (interaction) => {
                 });
             }
 
-            // ➕ เพิ่มสินค้าใหม่ (แยก 3 บรรทัด)
             if (interaction.customId === "setup2_modal") {
                 await interaction.deferReply({ ephemeral: true }).catch(() => {});
 
@@ -1004,11 +1035,10 @@ client.on("interactionCreate", async (interaction) => {
 
                 const cleanRole = rawRole.replace(/[^0-9]/g, '');
                 
-                // แยกเป็น 3 บรรทัด
                 const linesArr = rawDetails.split('\n').map(l => l.trim());
-                const gofileUrl = linesArr[0] || "";      // บรรทัดที่ 1: ลิงก์ดาวน์โหลด
-                const description = linesArr[1] || "";    // บรรทัดที่ 2: รายละเอียด
-                const previewImage = linesArr[2] || "";   // บรรทัดที่ 3: รูปภาพ
+                const gofileUrl = linesArr[0] || "";      
+                const description = linesArr[1] || "";    
+                const previewImage = linesArr[2] || "";   
 
                 const products = getProducts();
                 const newId = `prod_${Date.now()}`;
@@ -1032,7 +1062,6 @@ client.on("interactionCreate", async (interaction) => {
                 });
             }
 
-            // เพิ่ม/ลดสต็อก
             if (interaction.customId.startsWith('stock_modal_')) {
                 const parts = interaction.customId.split('_');
                 const action = parts[2];
@@ -1054,7 +1083,6 @@ client.on("interactionCreate", async (interaction) => {
                 await interaction.reply({ content: `✅ อัปเดตสต็อก **${product.name}** เรียบร้อย!\n📦 คงเหลือปัจจุบัน: **${product.stock} ชิ้น**`, ephemeral: true });
             }
 
-            // จัดการเงินผ่าน Modal
             if (interaction.customId === 'money_modal_add' || interaction.customId === 'money_modal_remove') {
                 const action = interaction.customId.includes('add') ? 'add' : 'remove';
                 const targetUserId = interaction.fields.getTextInputValue('target_userid').trim();
@@ -1072,7 +1100,6 @@ client.on("interactionCreate", async (interaction) => {
                 await interaction.reply({ content: `✅ ${action === 'add' ? 'เพิ่มเงิน' : 'หักเงิน'}สำเร็จ\n👤 ID: \`${targetUserId}\` | 💰 คงเหลือ: **${balances[targetUserId]} บาท**`, ephemeral: true });
             }
 
-            // เช็คผู้ใช้ผ่าน Modal
             if (interaction.customId === 'user_check_modal') {
                 const targetUserId = interaction.fields.getTextInputValue('check_userid').trim();
                 const balances = getBalances();
@@ -1094,7 +1121,6 @@ client.on("interactionCreate", async (interaction) => {
     }
 });
 
-
 // ---------------------------------------------------------
 // รับสลิป + ตรวจสอบกับ EasySlip อัตโนมัติ
 // ---------------------------------------------------------
@@ -1112,7 +1138,6 @@ client.on('messageCreate', async (message) => {
         const codeMatch = message.content.match(/BANK-[A-Z0-9-]+/i);
         const topupsBefore = getTopups();
 
-        // ถ้าไม่พิมพ์รหัส ให้ใช้รายการค้างของผู้ใช้ (ผู้ใช้หนึ่งคนมีได้ทีละรายการ)
         let topup = codeMatch ? topupsBefore[codeMatch[0].toUpperCase()] : null;
         if (!topup) {
             topup = Object.values(topupsBefore).find(t =>
@@ -1128,7 +1153,6 @@ client.on('messageCreate', async (message) => {
             return message.reply("❌ รายการนี้ไม่ใช่ของคุณ ไม่สามารถนำสลิปมาเข้าบัญชีผู้อื่นได้");
         }
 
-        // เปลี่ยนสถานะเป็น verifying ก่อนเรียก API เพื่อกันการส่งสลิปซ้ำพร้อมกัน
         const locked = await queueDbWrite(async () => {
             const topups = getTopups();
             const current = topups[topup.id];
@@ -1168,8 +1192,8 @@ client.on('messageCreate', async (message) => {
 
             return message.reply(
                 `⚠️ **ยังตรวจสอบสลิปไม่ได้**\n` +
-                `รายการ: \`${currentTopup.id}\`\\n` +
-                `สาเหตุ: ${String(err.message || err)}\\n\\n` +
+                `รายการ: \`${currentTopup.id}\`\n` +
+                `สาเหตุ: ${String(err.message || err)}\n\n` +
                 `กรุณาลองส่งสลิปใหม่อีกครั้ง`
             );
         }
@@ -1179,7 +1203,6 @@ client.on('messageCreate', async (message) => {
         const accountMatched = !!verification.matchedAccount;
         const transRef = verification.transRef;
 
-        // ตรวจ transRef ซ้ำในฐานข้อมูลเราอีกชั้น
         const topupsNow = getTopups();
         const localTransRefUsed = transRef && Object.values(topupsNow).some(t =>
             t.id !== currentTopup.id &&
@@ -1210,17 +1233,16 @@ client.on('messageCreate', async (message) => {
 
             return message.reply(
                 `❌ **สลิปไม่ผ่านการตรวจสอบ**\n` +
-                `🧾 รายการ: \`${currentTopup.id}\`\\n` +
-                `💰 ยอดที่ต้องโอน: **${currentTopup.amount.toFixed(2)} บาท**\\n` +
-                `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\\n` +
-                `📌 จำนวนเงินตรง: ${amountMatched ? '✅' : '❌'}\\n` +
-                `🏦 บัญชีผู้รับตรงกับบัญชีร้าน: ${accountMatched ? '✅' : '❌'}\\n` +
-                `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}\\n\\n` +
+                `🧾 รายการ: \`${currentTopup.id}\`\n` +
+                `💰 ยอดที่ต้องโอน: **${currentTopup.amount.toFixed(2)} บาท**\n` +
+                `💵 ยอดในสลิป: **${Number(verification.amount || 0).toFixed(2)} บาท**\n` +
+                `📌 จำนวนเงินตรง: ${amountMatched ? '✅' : '❌'}\n` +
+                `🏦 บัญชีผู้รับตรงกับบัญชีร้าน: ${accountMatched ? '✅' : '❌'}\n` +
+                `♻️ สลิปซ้ำ: ${duplicate || localTransRefUsed ? '❌' : '✅'}\n\n` +
                 `ระบบ **ยังไม่เพิ่มเงิน** ให้บัญชีคุณ`
             );
         }
 
-        // อนุมัติอัตโนมัติใน critical section เดียว ป้องกันเงินเข้า 2 ครั้ง
         const approved = await queueDbWrite(async () => {
             const topups = getTopups();
             const t = topups[currentTopup.id];
@@ -1254,12 +1276,12 @@ client.on('messageCreate', async (message) => {
 
         await message.reply(
             `✅ **เติมเงินสำเร็จ — ระบบตรวจสอบสลิปผ่านแล้ว**\n` +
-            `🧾 รายการ: \`${currentTopup.id}\`\\n` +
-            `💰 ได้รับ: **${currentTopup.amount.toFixed(2)} บาท**\\n` +
-            `🔐 ตรวจสอบบัญชีผู้รับ: ✅\\n` +
-            `🔐 ตรวจสอบจำนวนเงิน: ✅\\n` +
-            `🔐 ตรวจสอบสลิปซ้ำ: ✅\\n` +
-            `🔐 ตรวจสอบเลขอ้างอิงธุรกรรม: ✅\\n` +
+            `🧾 รายการ: \`${currentTopup.id}\`\n` +
+            `💰 ได้รับ: **${currentTopup.amount.toFixed(2)} บาท**\n` +
+            `🔐 ตรวจสอบบัญชีผู้รับ: ✅\n` +
+            `🔐 ตรวจสอบจำนวนเงิน: ✅\n` +
+            `🔐 ตรวจสอบสลิปซ้ำ: ✅\n` +
+            `🔐 ตรวจสอบเลขอ้างอิงธุรกรรม: ✅\n` +
             `💳 ยอดคงเหลือใหม่: **${approved.balance.toFixed(2)} บาท**`
         );
 
@@ -1270,12 +1292,12 @@ client.on('messageCreate', async (message) => {
                     .setColor("Green")
                     .setTitle("🏦 เติมเงินธนาคารสำเร็จ (Auto Verified)")
                     .setDescription(
-                        `👤 ผู้เติม: <@${currentTopup.userId}>\\n` +
-                        `🧾 รายการ: \`${currentTopup.id}\`\\n` +
-                        `💰 จำนวน: **${currentTopup.amount.toFixed(2)} บาท**\\n` +
-                        `🔖 TransRef: \`${transRef}\`\\n` +
-                        `🏦 บัญชีผู้รับ: ✅ ตรงกับบัญชีที่ลงทะเบียน EasySlip\\n` +
-                        `♻️ สลิปซ้ำ: ❌\\n` +
+                        `👤 ผู้เติม: <@${currentTopup.userId}>\n` +
+                        `🧾 รายการ: \`${currentTopup.id}\`\n` +
+                        `💰 จำนวน: **${currentTopup.amount.toFixed(2)} บาท**\n` +
+                        `🔖 TransRef: \`${transRef}\`\n` +
+                        `🏦 บัญชีผู้รับ: ✅ ตรงกับบัญชีที่ลงทะเบียน EasySlip\n` +
+                        `♻️ สลิปซ้ำ: ❌\n` +
                         `💳 ยอดหลังเติม: **${approved.balance.toFixed(2)} บาท**`
                     )
                     .setTimestamp()]
