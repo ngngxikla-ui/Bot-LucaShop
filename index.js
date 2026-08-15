@@ -910,7 +910,7 @@ client.on("interactionCreate", async (interaction) => {
                 if (!product) return interaction.reply({ content: "❌ ไม่พบสินค้านี้ในระบบ", ephemeral: true });
 
                 const embed = new EmbedBuilder()
-                    .setTitle(`🛒 พรีวิวสินค้า: ${product.name}`)
+                    .setTitle(`🛒 สินค้า: ${product.name}`)
                     .setDescription(`${product.desc || 'ไม่มีรายละเอียดสินค้า'}\n\n💰 **ราคา:** ${product.price} บาท\n📦 **สต็อกคงเหลือ:** ${product.stock.length} ชิ้น\n🎗️ **ยศที่จะได้รับ:** ${product.roleId ? `<@&${product.roleId}>` : 'ไม่มียศ'}`)
                     .setColor('Yellow');
                 
