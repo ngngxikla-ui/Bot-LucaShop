@@ -851,7 +851,7 @@ client.on("interactionCreate", async (interaction) => {
 
                 let replyMsg = `📦 **สินค้า:** ${product.name}\n💰 **ราคา:** ${product.price} บาท\n💳 **เงินคงเหลือ:** ${balances[interaction.user.id]} บาท\n\n🔑 **ข้อมูลสินค้า/สิทธิ์ของคุณ:**\n\`\`\`${itemReceived}\`\`\`;
                 if (product.downloadUrl && product.downloadUrl.startsWith('http')) {
-                    replyMsg += `\n\n📥 **ลิงก์ดาวน์โหลดสินค้า:**\n${product.downloadUrl}`;
+                    replyMsg += '\n\n📥 **ลิงก์ดาวน์โหลดสินค้า:**\n' + product.downloadUrl;
                 }
 
                 if (config.channellog) {
