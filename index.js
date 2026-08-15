@@ -876,7 +876,6 @@ client.on("interactionCreate", async (interaction) => {
                 saveProducts(products);
                 saveBalances(balances);
 
-                // บันทึกประวัติการซื้อสินค้าของผู้ใช้
                 const purchases = getPurchases();
                 if (!purchases[interaction.user.id]) purchases[interaction.user.id] = [];
                 purchases[interaction.user.id].push({
@@ -945,8 +944,7 @@ client.on("interactionCreate", async (interaction) => {
                     if (topups[topupId]) { topups[topupId].status = 'cancelled'; saveTopups(topups); }
                 });
                 awaitingSlipUsers.delete(interaction.user.id);
-                try { await interaction.message.delete(); } catch(e) {}
-                return await interaction.reply({ content: '🗑️ ยกเลิกรายการ `' + topupId + '` เรียบร้อยแล้ว', ephemeral: true });
+                return await interaction.update({ content: '🗑️ ยกเลิกรายการ `' + topupId + '` เรียบร้อยแล้ว', embeds: [], components: [] });
             }
 
             if (interaction.customId === "bank_topup_menu") {
@@ -1000,7 +998,6 @@ client.on("interactionCreate", async (interaction) => {
                 const balances = getBalances();
                 const bal = balances[targetUserId] || 0;
 
-                // รวบรวมประวัติการเติมเงิน (ขยายเป็น 10 รายการล่าสุด)
                 const allTopups = Object.values(getTopups()).filter(t => t.userId === targetUserId && t.status === 'approved');
                 allTopups.sort((a, b) => new Date(b.createdAt || b.approvedAt || 0) - new Date(a.createdAt || a.approvedAt || 0));
 
@@ -1011,7 +1008,6 @@ client.on("interactionCreate", async (interaction) => {
                       }).join('\n')
                     : '`❌ ยังไม่มีประวัติการเติมเงินในระบบ`';
 
-                // รวบรวมประวัติการซื้อสินค้า (ขยายเป็น 10 รายการล่าสุด)
                 const purchases = getPurchases();
                 const userPurchases = purchases[targetUserId] || [];
                 userPurchases.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -1023,7 +1019,6 @@ client.on("interactionCreate", async (interaction) => {
                       }).join('\n')
                     : '`❌ ยังไม่มีประวัติการซื้อสินค้า`';
 
-                // วันที่เข้าดิส
                 const joinTimestamp = member?.joinedAt ? Math.floor(member.joinedAt.getTime() / 1000) : null;
                 const joinDateStr = joinTimestamp ? `<t:${joinTimestamp}:F> (<t:${joinTimestamp}:R>)` : 'ไม่พบข้อมูลในเซิร์ฟเวอร์นี้';
 
@@ -1267,7 +1262,6 @@ client.on("interactionCreate", async (interaction) => {
                     balances[interaction.user.id] += amount;
                     saveBalances(balances);
 
-                    // บันทึกประวัติการเติมเงิน TrueMoney
                     const topupId = 'TM-' + Date.now().toString(36).toUpperCase();
                     const topups = getTopups();
                     topups[topupId] = {
@@ -1342,7 +1336,11 @@ client.on('messageCreate', async (message) => {
             const attachment = message.attachments.find(a => (a.contentType || '').startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(a.name || ''));
             if (attachment) {
                 message.delete().catch(() => {});
-                if (pending.interaction && pending.interaction.message) pending.interaction.message.delete().catch(() => {});
+                if (pending.interaction) {
+                    try {
+                        await pending.interaction.deleteReply().catch(() => {});
+                    } catch (e) {}
+                }
                 awaitingSlipUsers.delete(message.author.id);
                 await processSlipVerification(message.author, message.channel, attachment, pending.topupId, pending.interaction);
                 return;
