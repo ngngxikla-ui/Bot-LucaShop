@@ -271,7 +271,6 @@ async function sendEmbedsInChunks(interaction, embeds, ephemeral = true) {
     }
 }
 
-// 📦 ฟังก์ชันแจ้งเตือนสต็อกสินค้าและสินค้าใหม่ (รองรับทั้ง stockChannelId และ stockNotifyChannelId)
 async function sendStockNotification(client, type, product, amountAdded = 0) {
     const targetChannelId = config.stockChannelId || config.stockNotifyChannelId; 
     if (!targetChannelId) return;
@@ -581,7 +580,6 @@ client.on("interactionCreate", async (interaction) => {
                 products.push(newObj);
                 saveProducts(products);
 
-                // ส่งแจ้งเตือนสินค้าใหม่พร้อมสต็อกลงห้องสต็อก
                 await sendStockNotification(interaction.client, 'add', newObj, initialStock);
 
                 return interaction.reply({ content: `✅ เพิ่มสินค้า \`${nameProd}\` (ID: \`${id}\`) พร้อมสต็อกเริ่มต้น ${initialStock} ชิ้น เรียบร้อย!`, ephemeral: true });
@@ -615,7 +613,6 @@ client.on("interactionCreate", async (interaction) => {
                 for (let i = 0; i < count; i++) p.stock.push(`[สิทธิ์การใช้งานสินค้า - ${p.name}]`);
                 saveProducts(products);
 
-                // ส่งแจ้งเตือนการเพิ่มสต็อกลงห้องสต็อก
                 await sendStockNotification(interaction.client, 'add', p, count);
 
                 return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` เพิ่มจำนวน **${count} ชิ้น** สำเร็จ! (คงเหลือรวม: ${p.stock.length} ชิ้น)`, ephemeral: true });
@@ -1036,7 +1033,6 @@ client.on("interactionCreate", async (interaction) => {
                 products.push(newObj);
                 saveProducts(products);
 
-                // ส่งแจ้งเตือนสินค้าใหม่พร้อมสต็อกลงห้องสต็อก
                 await sendStockNotification(interaction.client, 'add', newObj, initialStock);
 
                 return interaction.reply({ content: `✅ เพิ่มสินค้า \`${name}\` พร้อมสต็อกเริ่มต้น ${initialStock} ชิ้น เรียบร้อยแล้ว!`, ephemeral: true });
@@ -1083,7 +1079,6 @@ client.on("interactionCreate", async (interaction) => {
                 saveProducts(products);
                 tempAdminData.delete(interaction.user.id);
 
-                // ส่งแจ้งเตือนการเพิ่มสต็อกลงห้องสต็อก
                 await sendStockNotification(interaction.client, 'add', p, count);
 
                 return interaction.reply({ content: `📈 เติมสต็อกสินค้า \`${p.name}\` จำนวน **${count} ชิ้น** สำเร็จ!`, ephemeral: true });
