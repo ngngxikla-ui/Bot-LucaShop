@@ -387,7 +387,7 @@ client.once("ready", () => {
     (async () => {
         try {
             await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-            client.user.setActivity('LucaShop HWID Lock', { type: ActivityType.Playing });
+            client.user.setActivity('LucaShop BOT', { type: ActivityType.Playing });
             console.log(chalk.green('✅ เข้าสู่ระบบสำเร็จในชื่อ : ' + client.user.tag));
             console.log(chalk.blue('⚙️ ลงทะเบียน Slash Commands แบบล็อกสิทธิ์แอดมินเรียบร้อยแล้ว!'));
         } catch (err) {
